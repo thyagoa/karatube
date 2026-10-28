@@ -215,7 +215,7 @@ details.box summary::-webkit-details-marker{display:none}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.1.1",APP_BUILD=1793220470;
+const APP_VERSION="1.1.3",APP_BUILD=1793221922;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -682,7 +682,21 @@ function withTimeout(p, ms, msg) { let t; return Promise.race([p, new Promise((_
 function loadScript(src) {
   return withTimeout(new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Falha ao baixar a biblioteca')); document.head.appendChild(s); }), 30000, 'A biblioteca demorou demais para baixar');
 }
-const KURO_DICTS = ['https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/', 'https://unpkg.com/kuromoji@0.1.2/dict/'];
+const KURO_DICTS = ['dict/', 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/', 'https://unpkg.com/kuromoji@0.1.2/dict/'];
+const KURO_FILES = ['base', 'cc', 'check', 'tid', 'tid_map', 'tid_pos', 'unk', 'unk_char', 'unk_compat', 'unk_invoke', 'unk_map', 'unk_pos'].map(n => n + '.dat.gz');
+async function prefetchDict(base, onProg) {
+  let done = 0, bytes = 0;
+  for (const f of KURO_FILES) {
+    let ok = false, lastE;
+    for (let t = 0; t < 2 && !ok; t++) {
+      const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 60000);
+      try { const r = await fetch(base + f, { signal: ac.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); const b = await r.arrayBuffer(); bytes += b.byteLength; ok = true; }
+      catch (e) { lastE = e; } finally { clearTimeout(to); }
+    }
+    if (!ok) throw new Error('Falha em ' + f + (lastE && lastE.name === 'AbortError' ? ' (demorou demais)' : ''));
+    done++; onProg(done, KURO_FILES.length, bytes);
+  }
+}
 async function toRomaji(text, onStage) {
   if (!hasJapanese(text)) throw new Error('nonjp');
   const stage = t => { KURO.stage = t; if (onStage) onStage(t); };
@@ -696,6 +710,8 @@ async function toRomaji(text, onStage) {
       for (let i = 0; i < KURO_DICTS.length; i++) {
         try {
           stage(i ? 'Tentando outra fonte do dicionário…' : 'Baixando dicionário (~17 MB, só na 1ª vez)…');
+          await prefetchDict(KURO_DICTS[i], (d, n, b) => stage('Baixando dicionário: ' + d + '/' + n + ' arquivos (' + (b / 1048576).toFixed(1) + ' de ~17 MB)…'));
+          stage('Preparando o dicionário…');
           const k = new K();
           await withTimeout(k.init(new window.KuromojiAnalyzer({ dictPath: KURO_DICTS[i] })), 120000, 'O dicionário demorou demais para baixar');
           KURO.inst = k; KURO.ready = true; return;
@@ -1211,6 +1227,7 @@ function secSong(d) {
   ${areaF('lyric', 'Letra inicial · até 5 linhas', 'Original (cole ou digite)', 4)}
   <div class="hint" id="lyrcnt">${lines(d.lyric)}/5 linhas</div>
   <div style="height:6px"></div>${areaF('lyricRoman', 'Romanizada ou traduzida', 'Opcional', 4)}
+  <div class="fx g8 ac" style="margin-top:8px"><button class="btn" style="height:44px;padding:0 12px;font-size:12px" data-act="romajiLyric" ${d.busyRomaji ? 'disabled' : ''}>${d.busyRomaji ? '<span class="spin"></span> Aguarde…' : ic('trans', 18) + ' Gerar romaji da letra'}</button><div class="hint fx1" style="margin:0">${d.busyRomaji && d.romajiStage ? esc(d.romajiStage) : 'Converte as linhas em japonês da letra original.'}</div></div>
   ${areaF('note', 'Nota pessoal', 'Algo para lembrar ao cantar', 2)}`;
 }
 function secVer(d) {
@@ -1888,6 +1905,20 @@ const ACT = {
     catch (e) { toast('Não consegui gerar o romaji: ' + (e.message || 'erro') + '. Precisa de internet na primeira vez; toque de novo para tentar.', { ms: 7000 }); }
     x.romajiStage = '';
     x.busyRomaji = false; render();
+  },
+  async romajiLyric() {
+    const x = ui.draft; const src = String(x.lyric || '').split(/\r?\n/).filter(l => l.trim()).slice(0, 5);
+    if (!src.length) return toast('Escreva a letra original primeiro.');
+    if (!src.some(hasJapanese)) return toast('Não achei japonês na letra. Digite a romanizada à mão.');
+    const antes = x.lyricRoman;
+    x.busyRomaji = true; render();
+    try {
+      const out = [];
+      for (const l of src) out.push(hasJapanese(l) ? await toRomaji(l, t => { x.romajiStage = t; render(); }) : l);
+      x.lyricRoman = out.join('\n');
+      if (antes && antes.trim() && antes !== x.lyricRoman) toast('Letra romanizada substituída.', { action: 'Desfazer', onAction: () => { x.lyricRoman = antes; render(); } });
+    } catch (e) { toast('Não consegui gerar o romaji: ' + (e.message || 'erro') + '. Precisa de internet na primeira vez; toque de novo para tentar.', { ms: 7000 }); }
+    x.romajiStage = ''; x.busyRomaji = false; render();
   },
   saveDraft() { saveDraft(); },
   cancelDraft() { cancelDraft(); },
