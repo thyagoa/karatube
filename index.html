@@ -215,7 +215,7 @@ details.box summary::-webkit-details-marker{display:none}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.2.0",APP_BUILD=1793228927;
+const APP_VERSION="1.3.0",APP_BUILD=1793229706;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -275,10 +275,10 @@ const logo = (s = 26) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fi
 
 /* ---------------- dados ---------------- */
 const D = {
-  songs: [], versions: [], lists: [], history: [], queue: [],
+  songs: [], versions: [], lists: [], history: [], queue: [], sync: { known: {}, tomb: {} },
   settings: { theme: 'system', device: null, lastBackup: null, snoozeUntil: 0, created: now(), tvCode: '', tvName: '', bases: ['musicbrainz', 'animethemes', 'lrclib'], tvPaired: false }
 };
-const KEYS = ['songs', 'versions', 'lists', 'history', 'queue', 'settings'];
+const KEYS = ['songs', 'versions', 'lists', 'history', 'queue', 'settings', 'sync'];
 const X = { song: {}, ver: {}, vid: {}, vers: {}, text: {} };
 let storageMode = 'idb';
 let persistent = null;
@@ -331,11 +331,12 @@ async function loadState() {
       if (v !== undefined) D[k] = k === 'settings' ? Object.assign(D.settings, v) : v;
     }
   }
+  if (!D.sync || typeof D.sync !== 'object') D.sync = { known: {}, tomb: {} }; D.sync.known = D.sync.known || {}; D.sync.tomb = D.sync.tomb || {};
   reindex();
   try { if (navigator.storage && navigator.storage.persisted) persistent = await navigator.storage.persisted(); } catch (e) { }
 }
 const dirty = new Set(); let saveTimer = null;
-function save(...keys) { keys.forEach(k => dirty.add(k)); clearTimeout(saveTimer); saveTimer = setTimeout(flush, 120); }
+function save(...keys) { if (typeof syncHook === 'function') syncHook(keys); keys.forEach(k => dirty.add(k)); clearTimeout(saveTimer); saveTimer = setTimeout(flush, 120); }
 async function flush() {
   for (const k of Array.from(dirty)) {
     try { await store.set(k, D[k]); } catch (e) { console.warn('falha ao salvar', k, e); if (storageMode === 'idb') { storageMode = 'ls'; try { await store.set(k, D[k]); } catch (e2) { storageMode = 'mem'; } } }
@@ -867,6 +868,152 @@ function applyImport(plan) {
   reindex(); save('songs', 'versions', 'lists', 'history');
   return { added, changed };
 }
+
+'use strict';
+/* =====================================================================
+   KaraTube · sincronização automática via GitHub (repositório privado)
+   Arquivos no repositório de dados:
+     catalogo.json                  músicas, versões, listas, histórico e "apagados"
+     capas/<id>-<hash>.txt          capa da música (data URL), um arquivo por capa
+   Mesclagem por registro: vence o mais recente (updated). Exclusões viajam como
+   "tombstones" (D.sync.tomb). A fila e os ajustes NÃO são sincronizados.
+   ===================================================================== */
+const SYNC = { busy: false, timer: null, applying: false, lastTry: 0 };
+const ghCfg = () => D.settings.gh || null;
+const ghOn = () => { const g = ghCfg(); return !!(g && g.token && g.repo); };
+const hashStr = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
+const b64 = t => { const u = new TextEncoder().encode(t); let s = ''; for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); };
+
+async function gh(path, o) {
+  const g = ghCfg(); o = o || {};
+  const r = await fetch('https://api.github.com/repos/' + g.repo + path, {
+    method: o.method || 'GET', cache: 'no-store',
+    headers: Object.assign({ Authorization: 'Bearer ' + g.token, Accept: o.accept || 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, o.body ? { 'Content-Type': 'application/json' } : {}),
+    body: o.body ? JSON.stringify(o.body) : undefined
+  });
+  if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+  return o.text ? r.text() : (r.status === 204 ? null : r.json());
+}
+function ghErrMsg(e) {
+  if (!e) return 'Erro desconhecido.';
+  if (e.status === 401) return 'Token inválido ou expirado. Gere outro no GitHub.';
+  if (e.status === 403) return 'O GitHub recusou (limite de uso ou token sem permissão).';
+  if (e.status === 404) return 'Repositório não encontrado, ou o token não tem acesso a ele.';
+  if (e.message === 'Failed to fetch' || e.name === 'TypeError') return 'Sem conexão com o GitHub.';
+  return 'Falha na sincronização: ' + (e.message || 'erro');
+}
+
+async function ghTree() {
+  const g = ghCfg();
+  if (!g.branch) { const info = await gh(''); g.branch = info.default_branch || 'main'; }
+  try {
+    const t = await gh('/git/trees/' + encodeURIComponent(g.branch) + '?recursive=1');
+    const m = {}; (t.tree || []).forEach(x => { if (x.type === 'blob') m[x.path] = x.sha; }); return m;
+  } catch (e) { if (e.status === 404 || e.status === 409) return {}; throw e; } // repositório vazio
+}
+const ghBlob = sha => gh('/git/blobs/' + sha, { accept: 'application/vnd.github.raw+json', text: true });
+async function ghPut(path, text, sha, msg) {
+  return gh('/contents/' + path.split('/').map(encodeURIComponent).join('/'), { method: 'PUT', body: { message: msg, content: b64(text), branch: ghCfg().branch, sha: sha || undefined } });
+}
+
+const sKey = (k, id) => k + ':' + id;
+function localDeletions() {
+  const known = D.sync.known || {}; const tomb = D.sync.tomb;
+  const have = { s: new Set(D.songs.map(x => x.id)), v: new Set(D.versions.map(x => x.code)), l: new Set(D.lists.map(x => x.id)) };
+  ['s', 'v', 'l'].forEach(k => (known[k] || []).forEach(id => { if (!have[k].has(id) && !tomb[sKey(k, id)]) tomb[sKey(k, id)] = now(); }));
+}
+const cmpForm = (k, x) => { if (k !== 's' || !x.art || !x.art.startsWith('data:')) return x; const c = Object.assign({}, x); c.artFile = 'capas/' + c.id + '-' + hashStr(c.art) + '.txt'; delete c.art; return c; };
+function mergeSet(k, local, remote, idf, tomb, stat) {
+  const L = new Map(local.map(x => [idf(x), x])), R = new Map(remote.map(x => [idf(x), x]));
+  const out = [];
+  new Set([...L.keys(), ...R.keys()]).forEach(id => {
+    const l = L.get(id), r = R.get(id), t = tomb[sKey(k, id)] || 0;
+    let w = l && r ? ((r.updated || 0) > (l.updated || 0) ? r : l) : (l || r);
+    if (t && t > (w.updated || 0)) { if (l) stat.local++; if (r) stat.remote++; return; }
+    if (l && r) { const diff = stable(cmpForm(k, r)) !== stable(cmpForm(k, l)); if (diff && w === r) stat.local++; if (diff && w === l) stat.remote++; }
+    else if (l) stat.remote++; else stat.local++;
+    out.push(w);
+  });
+  return out;
+}
+function mergeRemote(rem) {
+  const stat = { local: 0, remote: 0 };
+  const tomb = Object.assign({}, rem.tomb || {});
+  Object.keys(D.sync.tomb).forEach(k => { if ((D.sync.tomb[k] || 0) > (tomb[k] || 0)) { tomb[k] = D.sync.tomb[k]; stat.remote++; } });
+  D.sync.tomb = tomb;
+  const remSongs = (rem.songs || []).map(s => s);
+  D.songs = mergeSet('s', D.songs, remSongs, x => x.id, tomb, stat);
+  const sid = new Set(D.songs.map(s => s.id));
+  D.versions = mergeSet('v', D.versions, rem.versions || [], x => x.code, tomb, stat).filter(v => sid.has(v.song));
+  D.lists = mergeSet('l', D.lists, rem.lists || [], x => x.id, tomb, stat);
+  const vc = new Set(D.versions.map(v => v.code)); const hid = new Set(D.history.map(h => h.id));
+  (rem.history || []).forEach(h => { if (!hid.has(h.id) && vc.has(h.code)) { D.history.push(h); stat.local++; } });
+  D.history = D.history.filter(h => vc.has(h.code));
+  const rh = new Set((rem.history || []).map(h => h.id)); if (D.history.some(h => !rh.has(h.id))) stat.remote++;
+  return stat;
+}
+function serialize() {
+  return JSON.stringify({
+    app: 'karatube', v: 1, at: now(),
+    songs: D.songs.map(s => { const c = Object.assign({}, s); if (c.art && c.art.startsWith('data:')) { c.artFile = 'capas/' + c.id + '-' + hashStr(c.art) + '.txt'; delete c.art; } return c; }),
+    versions: D.versions, lists: D.lists, history: D.history, tomb: D.sync.tomb
+  });
+}
+function markKnown() { D.sync.known = { s: D.songs.map(x => x.id), v: D.versions.map(x => x.code), l: D.lists.map(x => x.id) }; }
+
+async function ghSyncNow(manual) {
+  if (!ghOn()) return; if (SYNC.busy) return;
+  if (!navigator.onLine) { if (manual) toast('Sem internet. Tento de novo quando voltar.'); return; }
+  SYNC.busy = true; SYNC.lastTry = now(); ui.syncMsg = 'Sincronizando…'; if (ui.tab === 'aju') render();
+  const g = ghCfg(); let summary = '';
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const tree = await ghTree();
+      let rem = { songs: [], versions: [], lists: [], history: [], tomb: {} }; const catSha = tree['catalogo.json'];
+      if (catSha) rem = JSON.parse(await ghBlob(catSha));
+      if (!g.last && (rem.songs || []).length && D.songs.length && !confirm('Este aparelho tem ' + D.songs.length + ' músicas e o GitHub já tem ' + rem.songs.length + '. Juntar os dois catálogos?')) { throw Object.assign(new Error('cancel'), { cancel: true }); }
+      const oldArt = {}; D.songs.forEach(x => { if (x.art) oldArt[x.id] = x.art; });
+      SYNC.applying = true;
+      localDeletions();
+      // capas vindas do GitHub
+      const remArt = {}; (rem.songs || []).forEach(s => { if (s.artFile) remArt[s.id] = s; });
+      const stat = mergeRemote(rem);
+      for (const s of D.songs) {
+        const rs = remArt[s.id];
+        if (rs && !s.art && oldArt[s.id] && oldArt[s.id].startsWith('data:') && ('capas/' + s.id + '-' + hashStr(oldArt[s.id]) + '.txt') === rs.artFile) s.art = oldArt[s.id];
+        if (rs && !s.art && tree[rs.artFile]) { try { s.art = await ghBlob(tree[rs.artFile]); stat.local++; } catch (e) { } }
+        else if (rs && s.art && s.art.startsWith('data:') && ('capas/' + s.id + '-' + hashStr(s.art) + '.txt') !== rs.artFile && (rs.updated || 0) > (s.updated || 0) && tree[rs.artFile]) { try { s.art = await ghBlob(tree[rs.artFile]); stat.local++; } catch (e) { } }
+      }
+      D.songs.forEach(x => { delete x.artFile; });
+      // capas novas daqui
+      let up = 0;
+      for (const s of D.songs) {
+        if (s.art && s.art.startsWith('data:')) {
+          const p = 'capas/' + s.id + '-' + hashStr(s.art) + '.txt';
+          if (!tree[p]) { try { await ghPut(p, s.art, null, 'Capa ' + s.id); up++; } catch (e) { if (e.status !== 422) throw e; } }
+        }
+      }
+      const needPut = !catSha || stat.remote > 0 || up > 0;
+      if (needPut) {
+        try { await ghPut('catalogo.json', serialize(), catSha, 'KaraTube · ' + (D.settings.device === 'tab' ? 'tablet' : 'celular')); }
+        catch (e) { if ((e.status === 409 || e.status === 422) && attempt < 2) { SYNC.applying = false; continue; } throw e; }
+      }
+      markKnown(); g.last = now(); g.err = ''; summary = stat.local ? 'Atualizado com ' + stat.local + (stat.local === 1 ? ' mudança' : ' mudanças') + ' do GitHub.' : 'Tudo em dia.';
+      reindex(); save('songs', 'versions', 'lists', 'history', 'sync', 'settings');
+      if (stat.local) { ui.songSel = ui.songSel && X.song[ui.songSel] ? ui.songSel : null; }
+      break;
+    }
+    ui.syncMsg = summary; if (manual) toast(summary);
+  } catch (e) {
+    if (e.cancel) { ui.syncMsg = 'Sincronização cancelada.'; }
+    else { g.err = ghErrMsg(e); ui.syncMsg = g.err; if (manual) toast(g.err, { ms: 5000 }); }
+    save('settings');
+  } finally { SYNC.busy = false; SYNC.applying = false; render(); }
+}
+function syncSoon(ms) { if (!ghOn()) return; clearTimeout(SYNC.timer); SYNC.timer = setTimeout(() => ghSyncNow(false), ms || 10000); }
+function syncHook(keys) { if (SYNC.applying || !ghOn()) return; if (keys.some(k => ['songs', 'versions', 'lists', 'history'].includes(k))) syncSoon(10000); }
+window.addEventListener('online', () => syncSoon(2000));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && ghOn() && now() - SYNC.lastTry > 120000) syncSoon(1500); });
 
 'use strict';
 /* =====================================================================
@@ -1449,6 +1596,13 @@ function viewSettings() {
       <p style="margin-top:10px;font-weight:700">Endereço do proxy</p><div class="field" style="margin-top:4px"><input id="tvproxy" data-change="tvProxy" value="${esc(D.settings.tvProxy || '')}" placeholder="https://karatube.seunome.workers.dev" autocapitalize="off" spellcheck="false"></div>
       ${D.settings.tvScreen ? `<div class="fx g8" style="margin-top:10px">${btn('Desparear', 'tvUnpair', { cls: 'fx1' })}</div>` : `<p style="margin-top:10px">Na TV, abra o YouTube › Configurações › Vincular com código da TV e digite o código de 12 dígitos aqui.</p>
       <div class="fx g8" style="margin-top:6px"><div class="field fx1"><input id="tvcode" placeholder="000 000 000 000" inputmode="numeric" style="font-family:'JetBrains Mono',monospace;font-size:16px"></div>${btn('Parear', 'tvPair', { style: 'height:48px' })}</div>`}</div>`,
+    sync: `<div class="card"><div class="fx ac g8"><h3 class="fx1">Sincronizar com o GitHub</h3><span class="fx ac g6 muted" style="font-size:12px;font-weight:700"><span class="dot ${ghOn() ? (D.settings.gh.err ? 'broken' : 'ok') : 'unverified'}"></span>${ghOn() ? (D.settings.gh.err ? 'Com erro' : 'Ligada') : 'Desligada'}</span></div>
+      <p>Mantém o catálogo igual no celular e no tablet, e guarda uma cópia no seu repositório privado do GitHub. A fila e os ajustes não são sincronizados.</p>
+      <p style="margin-top:10px;font-weight:700">Repositório de dados</p><div class="field" style="margin-top:4px"><input id="ghrepo" value="${esc((D.settings.gh || {}).repo || 'thyagoa/karatube-dados')}" placeholder="usuario/repositorio" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+      <p style="margin-top:10px;font-weight:700">Token de acesso</p><div class="field" style="margin-top:4px"><input id="ghtoken" type="password" value="" placeholder="${ghOn() ? 'guardado neste aparelho (cole outro para trocar)' : 'github_pat_…'}" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+      <div class="fx g8" style="margin-top:10px">${btn(ghOn() ? 'Salvar e sincronizar' : 'Conectar e sincronizar', 'ghSave', { cls: 'primary fx1' })}${ghOn() ? btn('Sincronizar agora', 'ghSync', { cls: 'fx1' }) : ''}</div>
+      ${ghOn() ? `<div style="margin-top:8px">${btn('Desconectar', 'ghOff', { cls: 'text sm' })}</div>` : ''}
+      <p style="font-size:12px;margin-top:8px">${esc(ui.syncMsg || '')}${D.settings.gh && D.settings.gh.last ? ' Última sincronização: ' + fmtDay(D.settings.gh.last) + ' ' + new Date(D.settings.gh.last).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + '.' : ''}</p></div>`,
     ver: `<div class="card"><h3>Versão do app</h3><p class="mono" style="font-size:13px;font-weight:600;margin-top:4px">v${APP_VERSION} · ${fmtBuild(APP_BUILD * 1000)}</p>
       <p style="margin-top:6px">${ui.upd ? (ui.upd.newer ? 'Há uma versão mais nova: v' + esc(ui.upd.v) + '.' : 'Você está na versão mais nova.') : 'Toque para ver se há versão mais nova.'}</p>
       <div class="fx g8" style="margin-top:10px">${btn('Verificar atualização', 'chkUpd', { cls: 'fx1' })}${ui.upd && ui.upd.newer ? btn('Atualizar agora', 'doUpd', { cls: 'primary fx1' }) : ''}</div></div>`,
@@ -1457,8 +1611,8 @@ function viewSettings() {
       ${persistent ? '' : `<div style="margin-top:10px">${btn('Pedir proteção dos dados', 'persist', { cls: 'sm' })}</div>`}</div>`
   };
   const hd = `<div class="hdr"><h1>Ajustes</h1></div>`;
-  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.store}</div><div>${cards.backup}${cards.tv}${cards.ver}</div></div></div>`;
-  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.device}${cards.tv}${cards.store}${cards.ver}</div>`;
+  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.store}</div><div>${cards.backup}${cards.sync}${cards.tv}${cards.ver}</div></div></div>`;
+  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.sync}${cards.device}${cards.tv}${cards.store}${cards.ver}</div>`;
 }
 
 /* ---------- primeira abertura ---------- */
@@ -1835,6 +1989,16 @@ const ACT = {
     try { const s = await TV.pair(code); toast('Pareado com ' + s.name + '.'); } catch (er) { toast(tvErrMsg(er), { ms: 5000 }); }
     render();
   },
+  ghSave() {
+    const repo = ($('#ghrepo') || {}).value ? $('#ghrepo').value.trim() : ''; const tk = ($('#ghtoken') || {}).value ? $('#ghtoken').value.trim() : '';
+    const old = D.settings.gh || {};
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return toast('Escreva o repositório assim: usuario/repositorio');
+    if (!tk && !old.token) return toast('Cole o token de acesso.');
+    D.settings.gh = Object.assign({}, old, { repo, token: tk || old.token, branch: repo === old.repo ? old.branch : '', err: '' });
+    save('settings'); render(); ghSyncNow(true);
+  },
+  ghSync() { ghSyncNow(true); },
+  ghOff() { D.settings.gh = null; save('settings'); ui.syncMsg = ''; render(); toast('Sincronização desligada. Seus dados continuam aqui.'); },
   chkUpd() { checkUpdate(false); },
   doUpd() { applyUpdate(); },
   tvUnpair() { D.settings.tvScreen = null; D.settings.tvPaired = false; save('settings'); render(); },
@@ -2044,6 +2208,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener && matchMedia('(pref
   ui.sort = D.settings.sort || 'code'; ui.dir = D.settings.dir || 'asc';
   setWide(); render();
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { }); if (/^https?:$/.test(location.protocol) && navigator.onLine) setTimeout(() => checkUpdate(true), 3000);
+  setTimeout(() => ghSyncNow(false), 3500);
 })();
 
 </script>
