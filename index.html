@@ -215,7 +215,7 @@ details.box summary::-webkit-details-marker{display:none}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.1.3",APP_BUILD=1793221922;
+const APP_VERSION="1.2.0",APP_BUILD=1793228927;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -557,6 +557,7 @@ async function checkUpdate(quiet) {
 }
 async function applyUpdate() {
   try { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); const rs = await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(r => r.unregister())); } catch (e) { }
+  try { await Promise.all(['./', 'index.html', 'sw.js', 'manifest.webmanifest'].map(u => fetch(u, { cache: 'reload' }))); } catch (e) { }
   if (typeof flush === 'function') { try { await flush(); } catch (e) { } }
   location.reload();
 }
@@ -605,27 +606,30 @@ const SEARCH = {
     const f = [titleField(r.title)];
     uniq((r['artist-credit'] || []).map(a => a.name)).forEach(n => f.push({ key: 'alias', label: 'Cantor (grafia)', value: n }));
     const y = (r['first-release-date'] || '').slice(0, 4); if (y) f.push({ key: 'year', label: 'Ano do primeiro lançamento', value: y });
+    const rel = (r.releases || []).find(x => x.id); if (rel) f.push({ key: 'art', label: 'Capa do álbum', value: 'https://coverartarchive.org/release/' + rel.id + '/front-500' });
     return f;
   },
   async animethemes(q) {
-    const j = await fetchJSON('https://api.animethemes.moe/search?fields[search]=animethemes&include[animetheme]=anime,song.artists&q=' + encodeURIComponent(q));
+    const j = await fetchJSON('https://api.animethemes.moe/search?fields[search]=animethemes&include[animetheme]=anime.images,song.artists&q=' + encodeURIComponent(q));
     const t = ((j.search || {}).animethemes || [])[0]; if (!t) return null;
     const f = [];
     if (t.song && t.song.title) f.push(titleField(t.song.title));
     const art = ((t.song || {}).artists || [])[0]; if (art && art.name) f.push({ key: 'alias', label: 'Cantor (grafia)', value: art.name });
     if (t.anime && t.anime.name) f.push({ key: 'origin', label: 'Origem', value: t.anime.name + (t.slug ? ' · ' + t.slug : '') });
     if (t.anime && t.anime.year) f.push({ key: 'year', label: 'Ano', value: String(t.anime.year) });
+    const im = ((t.anime || {}).images || []); const img = im.find(x => /large/i.test(x.facet || '')) || im[0]; if (img && img.link) f.push({ key: 'art', label: 'Pôster do anime', value: img.link });
     return f;
   },
   async anilist(q) {
     const j = await fetchJSON('https://graphql.anilist.co', {
       method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ query: 'query($s:String){Media(search:$s,type:ANIME){title{romaji english native} seasonYear}}', variables: { s: q } })
+      body: JSON.stringify({ query: 'query($s:String){Media(search:$s,type:ANIME){title{romaji english native} seasonYear coverImage{large}}}', variables: { s: q } })
     });
     const m = j && j.data && j.data.Media; if (!m) return null;
     const f = [];
     if (m.title.romaji) f.push({ key: 'origin', label: 'Origem (anime)', value: m.title.romaji });
     if (m.seasonYear) f.push({ key: 'year', label: 'Ano', value: String(m.seasonYear) });
+    if (m.coverImage && m.coverImage.large) f.push({ key: 'art', label: 'Pôster do anime', value: m.coverImage.large });
     return f;
   },
   async jikan(q) {
@@ -633,10 +637,11 @@ const SEARCH = {
     const a = (j.data || [])[0]; if (!a) return null;
     const f = [{ key: 'origin', label: 'Origem (anime)', value: a.title }];
     if (a.year) f.push({ key: 'year', label: 'Ano', value: String(a.year) });
+    const ai = a.images && a.images.jpg && (a.images.jpg.large_image_url || a.images.jpg.image_url); if (ai) f.push({ key: 'art', label: 'Pôster do anime', value: ai });
     return f;
   },
   async vocadb(q) {
-    const j = await fetchJSON('https://vocadb.net/api/songs?maxResults=1&fields=Names&lang=Default&query=' + encodeURIComponent(q));
+    const j = await fetchJSON('https://vocadb.net/api/songs?maxResults=1&fields=Names,MainPicture&lang=Default&query=' + encodeURIComponent(q));
     const s = (j.items || [])[0]; if (!s) return null;
     const f = []; const names = s.names || [];
     const jp = names.find(n => n.language === 'Japanese'), ro = names.find(n => n.language === 'Romaji'), en = names.find(n => n.language === 'English');
@@ -644,6 +649,7 @@ const SEARCH = {
     if (ro || en) f.push({ key: 'roman', label: 'Título romanizado / traduzido', value: (ro || en).value });
     if (s.artistString) f.push({ key: 'alias', label: 'Cantor (grafia)', value: s.artistString.split(' feat.')[0] });
     if (s.publishDate) f.push({ key: 'year', label: 'Ano', value: s.publishDate.slice(0, 4) });
+    const mp = s.mainPicture && (s.mainPicture.urlOriginal || s.mainPicture.urlThumb); if (mp) f.push({ key: 'art', label: 'Imagem da música', value: mp });
     return f;
   },
   async lrclib(q) {
@@ -657,6 +663,7 @@ const SEARCH = {
     const f = [titleField(r.trackName)];
     if (r.artistName) f.push({ key: 'alias', label: 'Cantor (grafia)', value: r.artistName });
     if (r.releaseDate) f.push({ key: 'year', label: 'Ano', value: r.releaseDate.slice(0, 4) });
+    if (r.artworkUrl100) f.push({ key: 'art', label: 'Capa do álbum', value: r.artworkUrl100.replace(/\/\d+x\d+(bb)?\.(jpg|png)$/, '/600x600bb.$2') });
     return f;
   }
 };
@@ -723,6 +730,22 @@ async function toRomaji(text, onStage) {
   }
   const r = await KURO.inst.convert(text, { to: 'romaji', mode: 'spaced', romajiSystem: 'hepburn' });
   return r.replace(/\s{2,}/g, ' ').trim().replace(/^./, c => c.toUpperCase());
+}
+
+/* ---- capa: reduz a imagem para uma miniatura guardada dentro do app ---- */
+function shrinkImage(src, max) {
+  return new Promise((res, rej) => {
+    const im = new Image(); im.crossOrigin = 'anonymous';
+    im.onload = () => {
+      try {
+        const k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight)); const c = document.createElement('canvas');
+        c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
+        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.78));
+      } catch (e) { rej(e); }
+    };
+    im.onerror = () => rej(new Error('imagem indisponível'));
+    im.src = src;
+  });
 }
 
 'use strict';
@@ -1057,9 +1080,10 @@ function viewSong() {
     <button class="ib" style="color:${s.fav ? 'var(--star)' : 'var(--muted)'}" data-act="fav" data-id="${s.id}" aria-label="Favoritar">${s.fav ? starFill(26) : ic('star', 26)}</button>${ib('more', 'songMenu', 'Mais ações da música', { d: { id: s.id } })}</div>`;
   const lyr = s.lyric || s.lyricRoman || s.note;
   return `${top}<div class="scroll pad" data-sk="song" style="padding-top:8px;padding-bottom:16px">
-    <div style="font-size:24px;font-weight:800;line-height:1.25" class="jp">${esc(s.title)}</div>
+    <div class="fx g12" style="align-items:flex-start">${s.art ? `<img src="${esc(s.art)}" alt="Capa" style="width:${ui.wide ? 132 : 104}px;height:${ui.wide ? 132 : 104}px;object-fit:cover;border-radius:14px;flex:none;background:var(--surface2);box-shadow:0 2px 10px rgba(0,0,0,.18)" onerror="this.remove()">` : ''}
+    <div class="fx1" style="min-width:0"><div style="font-size:24px;font-weight:800;line-height:1.25" class="jp">${esc(s.title)}</div>
     ${s.roman ? `<div class="muted" style="font-size:15px;margin-top:2px">${esc(s.roman)}</div>` : ''}
-    <div style="font-size:16px;font-weight:700;margin-top:8px" class="jp">${esc(singersStr(s))}</div>
+    <div style="font-size:16px;font-weight:700;margin-top:8px" class="jp">${esc(singersStr(s))}</div></div></div>
     ${meta.length ? `<div class="chips" style="gap:6px;margin-top:10px">${meta.map(m => `<span class="mini">${esc(m)}</span>`).join('')}</div>` : ''}
     ${s.coverOf ? `<div style="margin-top:10px">${X.song[s.coverOf] ? `<button class="btn sm" data-act="openSong" data-id="${s.coverOf}">${coverText(s)}</button>` : `<span class="muted" style="font-size:13px">${coverText(s)}</span>`}</div>` : ''}
     ${covers.length ? `<div class="muted" style="font-size:12px;margin-top:10px">Covers: ${covers.map(c => `<button class="btn text sm" style="padding:0 6px;height:32px;display:inline-flex;color:var(--accent)" data-act="openSong" data-id="${c.id}">${c.id}</button>`).join('')}</div>` : ''}
@@ -1134,7 +1158,7 @@ const KEY_DEFAULTS = ['Tom original', '−2', '+2', '−4', '+4'];
 function newDraft(mode, o) {
   return Object.assign({
     mode, scope: 'song', songCode: null, verCode: null, ret: null,
-    title: '', roman: '', singer: '', aliases: [], coverOf: '', lang: '', origin: '', year: '', lyric: '', lyricRoman: '', note: '',
+    title: '', roman: '', singer: '', aliases: [], coverOf: '', lang: '', origin: '', year: '', lyric: '', lyricRoman: '', note: '', art: '',
     url: '', vid: '', ytTitle: '', channel: '', ytState: 'idle', dupIgnored: false,
     key: '', voice: '', vtype: '', script: '', tags: [], link: 'unverified', rating: 0, vnote: '', songQ: '', busyRomaji: false
   }, o || {});
@@ -1142,7 +1166,7 @@ function newDraft(mode, o) {
 function loadSongInto(d, s) {
   d.title = s.title || ''; d.roman = s.roman || ''; d.singer = (s.singers || [])[0] || ''; d.aliases = (s.singers || []).slice(1);
   d.coverOf = s.coverOf || ''; d.lang = s.lang || ''; d.origin = s.origin || ''; d.year = s.year || '';
-  d.lyric = s.lyric || ''; d.lyricRoman = s.lyricRoman || ''; d.note = s.note || '';
+  d.lyric = s.lyric || ''; d.lyricRoman = s.lyricRoman || ''; d.note = s.note || ''; d.art = s.art || '';
 }
 function loadVerInto(d, v) {
   d.verCode = v.code; d.url = v.url || ''; d.vid = v.vid || ''; d.ytTitle = v.ytTitle || ''; d.channel = v.channel || ''; d.ytState = v.vid ? 'ok' : 'idle';
@@ -1228,6 +1252,12 @@ function secSong(d) {
   <div class="hint" id="lyrcnt">${lines(d.lyric)}/5 linhas</div>
   <div style="height:6px"></div>${areaF('lyricRoman', 'Romanizada ou traduzida', 'Opcional', 4)}
   <div class="fx g8 ac" style="margin-top:8px"><button class="btn" style="height:44px;padding:0 12px;font-size:12px" data-act="romajiLyric" ${d.busyRomaji ? 'disabled' : ''}>${d.busyRomaji ? '<span class="spin"></span> Aguarde…' : ic('trans', 18) + ' Gerar romaji da letra'}</button><div class="hint fx1" style="margin:0">${d.busyRomaji && d.romajiStage ? esc(d.romajiStage) : 'Converte as linhas em japonês da letra original.'}</div></div>
+  ${lbl('Capa da música')}
+  <div class="fx g12 ac"><div class="thumb" style="width:88px;height:88px;border-radius:12px;background:var(--surface2);flex:none">${d.art ? `<img src="${esc(d.art)}" alt="" onerror="this.remove()">` : `<span class="muted" style="font-size:11px">sem capa</span>`}</div>
+    <div class="col g8 fx1"><label class="btn" style="height:44px;font-size:13px;cursor:pointer">${ic('upload', 18)} Escolher da galeria<input type="file" accept="image/*" data-change="artFile" style="display:none"></label>
+    ${d.art ? btn('Remover capa', 'artRemove', { cls: 'text sm' }) : ''}</div></div>
+  <div class="field" style="margin-top:8px"><input id="f-artUrl" data-change="artUrl" placeholder="ou cole o link de uma imagem" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+  <div class="hint">Use “Buscar online” acima para trazer a capa das bases (iTunes, MusicBrainz, anime…).</div>
   ${areaF('note', 'Nota pessoal', 'Algo para lembrar ao cantar', 2)}`;
 }
 function secVer(d) {
@@ -1284,7 +1314,7 @@ function songFromDraft(d, base) {
   const s = base || { id: '', created: now(), fav: false };
   s.title = d.title.trim(); s.roman = d.roman.trim(); s.singers = [d.singer.trim()].concat(d.aliases).filter(Boolean);
   s.coverOf = d.coverOf.trim(); s.lang = d.lang; s.origin = d.origin.trim(); s.year = String(d.year || '').trim();
-  s.lyric = cleanLyric(d.lyric); s.lyricRoman = cleanLyric(d.lyricRoman); s.note = d.note.trim(); s.updated = now();
+  s.lyric = cleanLyric(d.lyric); s.lyricRoman = cleanLyric(d.lyricRoman); s.note = d.note.trim(); s.art = d.art || ''; s.updated = now();
   return s;
 }
 function verFromDraft(d, v) {
@@ -1639,7 +1669,7 @@ function onlineGroup(b, t) {
   else if (r.status === 'error') inner = `<div class="crow muted" style="font-size:13px;line-height:1.4">${esc(r.msg)}</div>`;
   else inner = r.fields.map((f, i) => {
     const k = b.id + ':' + i; const tg = r.tags[i];
-    return `<label class="crow" style="min-height:50px"><input type="checkbox" data-change="onChk" data-k="${k}" ${t.chk[k] ? 'checked' : ''} aria-label="${esc(f.label)}"><span class="fx1"><span class="muted" style="display:block;font-size:12px">${esc(f.label)}</span><b style="display:block;font-size:15px;${f.key === 'lyric' ? 'white-space:pre-line' : 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis'}" class="jp">${esc(f.value)}</b></span><span class="muted" style="font-size:11px;font-weight:700;flex:none">${tg}</span></label>`;
+    return `<label class="crow" style="min-height:50px"><input type="checkbox" data-change="onChk" data-k="${k}" ${t.chk[k] ? 'checked' : ''} aria-label="${esc(f.label)}"><span class="fx1"><span class="muted" style="display:block;font-size:12px">${esc(f.label)}</span>${f.key === 'art' ? `<img src="${esc(f.value)}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:10px;margin-top:4px;background:var(--surface2)" onerror="this.outerHTML='<span class=&quot;muted&quot; style=&quot;font-size:12px&quot;>imagem indisponível</span>'">` : `<b style="display:block;font-size:15px;${f.key === 'lyric' ? 'white-space:pre-line' : 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis'}" class="jp">${esc(f.value)}</b>`}</span><span class="muted" style="font-size:11px;font-weight:700;flex:none">${tg}</span></label>`;
   }).join('');
   const cnt = !r ? '' : r.status === 'ok' ? '1 resultado' : r.status === 'empty' ? 'sem resultado' : 'erro';
   return `<div><div class="gh"><b>${b.name}</b><span>${cnt}</span></div><div class="group">${inner}</div></div>`;
@@ -1713,6 +1743,10 @@ function purgeVersion(code) {
 function purgeSong(id) {
   (X.vers[id] || []).slice().forEach(v => purgeVersion(v.code));
   D.songs = D.songs.filter(s => s.id !== id);
+}
+function setArt(url) {
+  const x = ui.draft; x.art = url; render();
+  shrinkImage(url, 420).then(d => { if (ui.draft === x && x.art === url) { x.art = d; render(); } }).catch(() => { /* fica só o link */ });
 }
 function onlineRefresh(t) {
   const seen = new Set();
@@ -1920,6 +1954,7 @@ const ACT = {
     } catch (e) { toast('Não consegui gerar o romaji: ' + (e.message || 'erro') + '. Precisa de internet na primeira vez; toque de novo para tentar.', { ms: 7000 }); }
     x.romajiStage = ''; x.busyRomaji = false; render();
   },
+  artRemove() { ui.draft.art = ''; render(); },
   saveDraft() { saveDraft(); },
   cancelDraft() { cancelDraft(); },
   /* buscar online */
@@ -1940,7 +1975,7 @@ const ACT = {
     t.ran.forEach(id => { const r = t.res[id]; if (!r || r.status !== 'ok') return; r.fields.forEach((f, i) => {
       if (!t.chk[id + ':' + i]) return; n++;
       if (f.key === 'alias') { if (!x.singer) x.singer = f.value; else if (!x.aliases.map(norm).includes(norm(f.value)) && norm(f.value) !== norm(x.singer)) x.aliases.push(f.value); }
-      else if (f.key === 'lyric') x.lyric = f.value; else x[f.key] = f.value;
+      else if (f.key === 'lyric') x.lyric = f.value; else if (f.key === 'art') setArt(f.value); else x[f.key] = f.value;
     }); });
     ui.sheets = []; toast(n + (n === 1 ? ' campo importado.' : ' campos importados.')); render();
   }
@@ -1984,6 +2019,8 @@ document.addEventListener('change', e => {
   const s = sh();
   switch (c) {
     case 'listName': { const l = D.lists.find(x => x.id === ui.listSel); if (l) { l.name = t.value.trim() || l.name; l.updated = now(); save('lists'); render(); } break; }
+    case 'artUrl': { const u = t.value.trim(); if (/^https?:\/\//i.test(u)) setArt(u); else if (u) toast('Cole um link que comece com http.'); break; }
+    case 'artFile': { const f = t.files && t.files[0]; if (f) { const r = new FileReader(); r.onload = () => shrinkImage(r.result, 420).then(d => { ui.draft.art = d; render(); }).catch(() => toast('Não consegui ler esta imagem.')); r.readAsDataURL(f); } break; }
     case 'tvProxy': D.settings.tvProxy = t.value.trim(); save('settings'); break;
     case 'onBase': { const i = s.sel.indexOf(t.dataset.id); if (t.checked && i < 0) s.sel.push(t.dataset.id); if (!t.checked && i >= 0) s.sel.splice(i, 1); render(); break; }
     case 'onChk': s.chk[t.dataset.k] = t.checked; render(); break;
