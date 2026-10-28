@@ -215,7 +215,7 @@ details.box summary::-webkit-details-marker{display:none}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.1.0",APP_BUILD=1793215479;
+const APP_VERSION="1.1.1",APP_BUILD=1793220470;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -676,21 +676,32 @@ async function searchBases(ids, q, onEach) {
 }
 
 /* ---- romanização (só japonês) via Kuroshiro, baixado na primeira vez ---- */
-const KURO = { inst: null, loading: null, ready: false };
+const KURO = { inst: null, loading: null, ready: false, stage: '' };
 const hasJapanese = s => /[぀-ヿ㐀-鿿]/.test(s || '');
+function withTimeout(p, ms, msg) { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(msg)), ms); })]).finally(() => clearTimeout(t)); }
 function loadScript(src) {
-  return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Falha ao baixar ' + src)); document.head.appendChild(s); });
+  return withTimeout(new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Falha ao baixar a biblioteca')); document.head.appendChild(s); }), 30000, 'A biblioteca demorou demais para baixar');
 }
-async function toRomaji(text) {
+const KURO_DICTS = ['https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/', 'https://unpkg.com/kuromoji@0.1.2/dict/'];
+async function toRomaji(text, onStage) {
   if (!hasJapanese(text)) throw new Error('nonjp');
+  const stage = t => { KURO.stage = t; if (onStage) onStage(t); };
   if (!KURO.inst) {
     if (!KURO.loading) KURO.loading = (async () => {
+      stage('Baixando biblioteca…');
       if (!window.Kuroshiro) await loadScript('https://cdn.jsdelivr.net/npm/kuroshiro@1.2.1/dist/kuroshiro.min.js');
       if (!window.KuromojiAnalyzer) await loadScript('https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js');
       const K = window.Kuroshiro.default || window.Kuroshiro;
-      const k = new K();
-      await k.init(new window.KuromojiAnalyzer({ dictPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' }));
-      KURO.inst = k; KURO.ready = true;
+      let lastErr;
+      for (let i = 0; i < KURO_DICTS.length; i++) {
+        try {
+          stage(i ? 'Tentando outra fonte do dicionário…' : 'Baixando dicionário (~17 MB, só na 1ª vez)…');
+          const k = new K();
+          await withTimeout(k.init(new window.KuromojiAnalyzer({ dictPath: KURO_DICTS[i] })), 120000, 'O dicionário demorou demais para baixar');
+          KURO.inst = k; KURO.ready = true; return;
+        } catch (e) { lastErr = e; }
+      }
+      throw lastErr || new Error('Falha ao carregar o dicionário');
     })().catch(e => { KURO.loading = null; throw e; });
     await KURO.loading;
   }
@@ -1187,8 +1198,8 @@ function secSong(d) {
   const lines = (s) => String(s || '').split(/\r?\n/).filter(x => x.trim()).length;
   return `${fld('title', 'Título original', { jp: true, ph: 'Como aparece no vídeo ou na música' })}
   ${lbl('Título romanizado / traduzido')}<div class="fx g8"><div class="field fx1"><input id="f-roman" data-f="roman" value="${esc(d.roman)}" placeholder="Digite ou gere" autocomplete="off"></div>
-    <button class="btn" style="height:48px;padding:0 12px;font-size:12px" data-act="romaji" ${d.busyRomaji ? 'disabled' : ''}>${d.busyRomaji ? '<span class="spin"></span> Carregando…' : ic('trans', 18) + ' Gerar romaji'}</button></div>
-  <div class="hint">Gera só a partir de japonês. Sempre dá para editar.</div>
+    <button class="btn" style="height:48px;padding:0 12px;font-size:12px" data-act="romaji" ${d.busyRomaji ? 'disabled' : ''}>${d.busyRomaji ? '<span class="spin"></span> ' + esc(d.romajiStage ? 'Aguarde…' : 'Carregando…') : ic('trans', 18) + ' Gerar romaji'}</button></div>
+  <div class="hint">${d.busyRomaji && d.romajiStage ? esc(d.romajiStage) : 'Gera só a partir de japonês. Sempre dá para editar.'}</div>
   ${fld('singer', 'Cantor', { jp: true })}${sugBox('singer')}
   ${lbl('Outras grafias do cantor')}
   <div class="field" style="flex-wrap:wrap;gap:6px;padding:6px 10px"><span class="fx wrap g6 ac" id="aliases">${d.aliases.map((a, i) => `<span class="tag">${esc(a)}<button data-act="rmAlias" data-i="${i}" aria-label="Remover ${esc(a)}">${ic('close', 16)}</button></span>`).join('')}</span>
@@ -1873,8 +1884,9 @@ const ACT = {
     const x = ui.draft; if (!x.title.trim()) return toast('Escreva o título original primeiro.');
     if (!hasJapanese(x.title)) return toast('Só gera a partir de japonês. Digite o título romanizado à mão.');
     x.busyRomaji = true; render();
-    try { const r = await toRomaji(x.title); x.roman = r; }
-    catch (e) { toast('Não consegui carregar o dicionário de romaji (precisa de internet na primeira vez).', { ms: 5000 }); }
+    try { const r = await toRomaji(x.title, t => { x.romajiStage = t; render(); }); x.roman = r; }
+    catch (e) { toast('Não consegui gerar o romaji: ' + (e.message || 'erro') + '. Precisa de internet na primeira vez; toque de novo para tentar.', { ms: 7000 }); }
+    x.romajiStage = '';
     x.busyRomaji = false; render();
   },
   saveDraft() { saveDraft(); },
