@@ -215,7 +215,7 @@ details.box summary::-webkit-details-marker{display:none}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.3.0",APP_BUILD=1793229706;
+const APP_VERSION="1.4.0",APP_BUILD=1793230916;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -347,19 +347,33 @@ window.addEventListener('pagehide', () => { if (dirty.size) flush(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && dirty.size) flush(); });
 
 /* ---------------- códigos ---------------- */
-// Celular = primeiro dígito PAR (000001…, 200000…). Tablet = primeiro dígito ÍMPAR (100001…, 300000…).
-const parityOf = dev => dev === 'tab' ? 1 : 0;
-const firstDigit = n => Math.floor(n / 100000);
-function nextSongNumber(dev) {
-  const par = parityOf(dev || D.settings.device);
+// Cada aparelho tem uma faixa de 100.000 números: faixa 0 = 000001–099999, faixa 1 = 100000–199999, faixa 2 = 200000–299999…
+// O cadastro dos aparelhos (apelido + faixa) vive em D.settings.dev e no arquivo dispositivos.json do repositório de dados.
+const SLOTS = 10;
+const slotLo = k => k * 100000 || 1, slotHi = k => k * 100000 + 99999;
+const slotLabel = k => pad(slotLo(k), 6) + ' a ' + pad(slotHi(k), 6);
+function devInfo() {
+  const st = D.settings;
+  if (!st.dev) {
+    if (!st.device) return null;
+    st.dev = { id: 'd' + Math.random().toString(36).slice(2, 10) + now().toString(36), name: st.device === 'tab' ? 'Tablet' : 'Celular', slot: st.device === 'tab' ? 1 : 0 };
+  }
+  return st.dev;
+}
+function createDev(kind, name) {
+  D.settings.device = kind;
+  D.settings.dev = { id: 'd' + Math.random().toString(36).slice(2, 10) + now().toString(36), name: (name || '').trim() || (kind === 'tab' ? 'Tablet' : 'Celular'), slot: kind === 'tab' ? 1 : 0 };
+}
+const devName = () => { const d = devInfo(); return d ? d.name : 'aparelho'; };
+function nextSongNumber(slot) {
+  if (slot === undefined) { const d = devInfo(); slot = d ? d.slot : 0; }
   let max = -1;
-  D.songs.forEach(s => { const n = parseInt(s.id, 10); if (firstDigit(n) % 2 === par && n > max) max = n; });
-  let n = max < 0 ? (par === 0 ? 1 : 100001) : max + 1;
-  while (n <= 999999 && firstDigit(n) % 2 !== par) n += 100000;
-  if (n > 999999) throw new Error('Acabaram os códigos deste aparelho.');
+  D.songs.forEach(s => { const n = parseInt(s.id, 10); if (n >= slotLo(slot) && n <= slotHi(slot) && n > max) max = n; });
+  const n = max < 0 ? slotLo(slot) : max + 1;
+  if (n > slotHi(slot)) throw new Error('Acabaram os códigos da faixa deste aparelho.');
   return n;
 }
-const nextSongCode = dev => pad(nextSongNumber(dev), 6);
+const nextSongCode = slot => pad(nextSongNumber(slot), 6);
 function nextVersionCode(songId) {
   let max = 0;
   (X.vers[songId] || []).forEach(v => { const k = parseInt(v.code.split('-')[1], 10); if (k > max) max = k; });
@@ -755,11 +769,11 @@ function shrinkImage(src, max) {
    ===================================================================== */
 const BACKUP_DAYS = 30;
 function buildBackup() {
-  return { app: 'karatube', v: 1, exportedAt: now(), device: D.settings.device, songs: D.songs, versions: D.versions, lists: D.lists, history: D.history };
+  return { app: 'karatube', v: 1, exportedAt: now(), device: devName(), songs: D.songs, versions: D.versions, lists: D.lists, history: D.history };
 }
 function backupName() {
   const d = new Date();
-  return `karatube-${D.settings.device === 'tab' ? 'tablet' : 'celular'}-${d.getFullYear()}-${pad(d.getMonth() + 1, 2)}-${pad(d.getDate(), 2)}.json`;
+  return `karatube-${devName().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'aparelho'}-${d.getFullYear()}-${pad(d.getMonth() + 1, 2)}-${pad(d.getDate(), 2)}.json`;
 }
 function markBackup() { D.settings.lastBackup = now(); D.settings.snoozeUntil = 0; save('settings'); }
 function downloadFile(name, text) {
@@ -959,6 +973,19 @@ function serialize() {
     versions: D.versions, lists: D.lists, history: D.history, tomb: D.sync.tomb
   });
 }
+// Cadastro dos aparelhos (dispositivos.json): cada um tem id, apelido e faixa de códigos.
+function reconcileDevices(reg) {
+  const me = devInfo(); if (!me) return false;
+  const list = reg.devices = reg.devices || []; let changed = false;
+  (D.settings.devDel || []).forEach(id => { const i = list.findIndex(x => x.id === id); if (i >= 0 && id !== me.id) { list.splice(i, 1); changed = true; } });
+  D.settings.devDel = [];
+  const taken = k => list.some(x => x.id !== me.id && x.slot === k);
+  if (taken(me.slot)) { let k = 0; while (k < SLOTS && taken(k)) k++; if (k < SLOTS) { me.slot = k; toast('A faixa deste aparelho já era de outro. Agora ele usa ' + slotLabel(k) + '.', { ms: 6000 }); } }
+  const mine = list.find(x => x.id === me.id);
+  if (!mine) { list.push({ id: me.id, name: me.name, slot: me.slot, at: now() }); changed = true; }
+  else if (mine.name !== me.name || mine.slot !== me.slot) { mine.name = me.name; mine.slot = me.slot; changed = true; }
+  return changed;
+}
 function markKnown() { D.sync.known = { s: D.songs.map(x => x.id), v: D.versions.map(x => x.code), l: D.lists.map(x => x.id) }; }
 
 async function ghSyncNow(manual) {
@@ -972,6 +999,13 @@ async function ghSyncNow(manual) {
       let rem = { songs: [], versions: [], lists: [], history: [], tomb: {} }; const catSha = tree['catalogo.json'];
       if (catSha) rem = JSON.parse(await ghBlob(catSha));
       if (!g.last && (rem.songs || []).length && D.songs.length && !confirm('Este aparelho tem ' + D.songs.length + ' músicas e o GitHub já tem ' + rem.songs.length + '. Juntar os dois catálogos?')) { throw Object.assign(new Error('cancel'), { cancel: true }); }
+      let reg = { devices: [] }; const regSha = tree['dispositivos.json'];
+      if (regSha) { try { reg = JSON.parse(await ghBlob(regSha)); } catch (e) { reg = { devices: [] }; } }
+      if (reconcileDevices(reg)) {
+        try { await ghPut('dispositivos.json', JSON.stringify(reg, null, 1), regSha, 'Aparelhos · ' + devName()); }
+        catch (e) { if ((e.status === 409 || e.status === 422) && attempt < 2) continue; throw e; }
+      }
+      D.settings.devs = reg.devices;
       const oldArt = {}; D.songs.forEach(x => { if (x.art) oldArt[x.id] = x.art; });
       SYNC.applying = true;
       localDeletions();
@@ -995,7 +1029,7 @@ async function ghSyncNow(manual) {
       }
       const needPut = !catSha || stat.remote > 0 || up > 0;
       if (needPut) {
-        try { await ghPut('catalogo.json', serialize(), catSha, 'KaraTube · ' + (D.settings.device === 'tab' ? 'tablet' : 'celular')); }
+        try { await ghPut('catalogo.json', serialize(), catSha, 'KaraTube · ' + devName()); }
         catch (e) { if ((e.status === 409 || e.status === 422) && attempt < 2) { SYNC.applying = false; continue; } throw e; }
       }
       markKnown(); g.last = now(); g.err = ''; summary = stat.local ? 'Atualizado com ' + stat.local + (stat.local === 1 ? ' mudança' : ' mudanças') + ' do GitHub.' : 'Tudo em dia.';
@@ -1024,7 +1058,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 const app = document.getElementById('app');
 const ui = {
   wide: false, tab: 'cat', songSel: null, query: '', f: F0(), sort: 'code', dir: 'asc', limit: 150,
-  lisSeg: 'listas', listSel: null, draft: null, sheets: [], nowRating: 0, nowKey: null, fr: { device: 'cel' }
+  lisSeg: 'listas', listSel: null, draft: null, sheets: [], nowRating: 0, nowKey: null, fr: { device: 'cel', name: '' }
 };
 
 /* ---------- peças pequenas ---------- */
@@ -1037,6 +1071,12 @@ const firstCh = t => { const a = Array.from(String(t || '?').trim()); return esc
 function thumbHtml(s, v, size, fs, radius) {
   const img = v && v.vid ? `<img src="${thumbUrl(v.vid)}" alt="" loading="lazy" onerror="this.remove()">` : '';
   return `<div class="thumb" style="width:${size}px;height:${size}px;font-size:${fs}px;background:var(--t${tint(s.id)});border-radius:${radius || 12}px">${firstCh(s.title)}${img}</div>`;
+}
+// Miniatura de uma MÚSICA (catálogo e seletores): a capa da música, se houver; senão a miniatura do vídeo.
+function songThumb(s, v, size, fs, radius) {
+  const vid = v && v.vid ? `<img src="${thumbUrl(v.vid)}" alt="" loading="lazy" onerror="this.remove()">` : '';
+  const art = s.art ? `<img src="${esc(s.art)}" alt="" loading="lazy" onerror="this.remove()">` : '';
+  return `<div class="thumb" style="width:${size}px;height:${size}px;font-size:${fs}px;background:var(--t${tint(s.id)});border-radius:${radius || 12}px">${firstCh(s.title)}${vid}${art}</div>`;
 }
 function vthumb(s, v, w, h, r) {
   const img = v && v.vid ? `<img src="${thumbUrl(v.vid)}" alt="" loading="lazy" onerror="this.remove()">` : '';
@@ -1076,7 +1116,7 @@ function render() {
   const ae = document.activeElement; const fid = ae && ae.id ? ae.id : null;
   const sel = fid && ae.selectionStart != null ? [ae.selectionStart, ae.selectionEnd] : null;
   let html;
-  if (!D.settings.device) html = viewFirstRun();
+  if (!devInfo()) html = viewFirstRun();
   else html = ui.wide ? shellWide() : shellPhone();
   html += sheetHtml();
   app.innerHTML = html;
@@ -1148,7 +1188,7 @@ function songRow(s) {
   const cov = s.coverOf ? coverText(s) : '';
   const meta = [cov, s.origin, s.year, vs.length + (vs.length === 1 ? ' versão' : ' versões')].filter(Boolean).slice(0, cov ? 2 : 3).join(' · ');
   return `<div class="srow ${ui.wide && ui.songSel === s.id ? 'sel' : ''}" role="button" tabindex="0" data-act="openSong" data-id="${s.id}">
-    ${thumbHtml(s, v, 64, 28)}
+    ${songThumb(s, v, 64, 28)}
     <div class="fx1"><div class="t ell jp">${esc(s.title)}</div>${s.roman ? `<div class="r ell">${esc(s.roman)}</div>` : ''}
       <div class="ell" style="font-size:13px;margin-top:2px">${esc(singersStr(s))}</div>
       <div class="fx ac g8" style="margin-top:6px"><span class="codepill">${s.id}</span><span class="r ell" style="font-size:12px">${meta}</span></div></div>
@@ -1428,7 +1468,7 @@ function songResults(d) {
   const t = norm(d.songQ); if (t.length < 1) return '';
   const res = D.songs.filter(s => (X.text[s.id] || '').includes(t)).slice(0, 5);
   if (!res.length) return `<div class="hint">Nenhuma música encontrada.</div>`;
-  return `<div style="margin-top:8px">${res.map(s => `<div class="srow" role="button" tabindex="0" data-act="pickSong" data-id="${s.id}">${thumbHtml(s, bestVersion(s.id), 44, 20, 10)}<div class="fx1"><div class="ell jp t" style="font-size:15px">${esc(s.title)}</div><div class="r ell mono" style="font-size:12px">${s.id} · ${esc(singersStr(s))}</div></div></div>`).join('')}</div>`;
+  return `<div style="margin-top:8px">${res.map(s => `<div class="srow" role="button" tabindex="0" data-act="pickSong" data-id="${s.id}">${songThumb(s, bestVersion(s.id), 44, 20, 10)}<div class="fx1"><div class="ell jp t" style="font-size:15px">${esc(s.title)}</div><div class="r ell mono" style="font-size:12px">${s.id} · ${esc(singersStr(s))}</div></div></div>`).join('')}</div>`;
 }
 function viewForm() {
   if (!ui.draft) ui.draft = newDraft('new');
@@ -1578,7 +1618,7 @@ function viewHistory() {
 
 /* ---------- ajustes ---------- */
 function viewSettings() {
-  const dev = D.settings.device; const par = dev === 'tab' ? 'ímpar (100001, 100002… depois 300000)' : 'par (000001, 000002… depois 200000)';
+  const dv = devInfo() || { name: '', slot: 0 }; const devs = D.settings.devs || [];
   let next = '—'; try { next = nextSongCode() + '-01'; } catch (e) { }
   const th = D.settings.theme;
   const last = D.settings.lastBackup;
@@ -1589,8 +1629,11 @@ function viewSettings() {
       <div class="mono muted" style="font-size:12px;margin-top:8px">${last ? 'Último backup: ' + fmtDay(last) + ' · ' : 'Nenhum backup ainda · '}${D.songs.length} músicas · ${D.versions.length} versões</div>
       <div class="fx g8" style="margin-top:10px">${btn('Compartilhar', 'share', { cls: 'primary grow', icon: 'share', style: 'flex:1.5;height:48px' })}${btn('Importar', 'import', { cls: 'grow', icon: 'upload', style: 'height:48px' })}</div>
       <button class="btn text" style="width:100%;margin-top:4px" data-act="saveDevice">Só salvar neste aparelho (Downloads)</button></div>`,
-    device: `<div class="card"><h3>Este aparelho</h3><div class="seg alt" style="margin-top:10px">${[['cel', 'Celular'], ['tab', 'Tablet']].map(x => `<button class="${dev === x[0] ? 'sel' : ''}" data-act="device" data-v="${x[0]}">${x[1]}</button>`).join('')}</div>
-      <p style="margin-top:10px">Códigos novos começam com dígito ${par}. Mudar aqui só vale para músicas novas.</p><div class="mono" style="font-size:12px;font-weight:600;margin-top:6px">Próximo código: ${next}</div></div>`,
+    device: `<div class="card"><h3>Este aparelho</h3>
+      <p style="margin-top:10px;font-weight:700">Apelido</p><div class="field" style="margin-top:4px"><input id="devname" data-change="devName" value="${esc(dv.name)}" placeholder="Ex.: Celular do Thyago" autocomplete="off" maxlength="30"></div>
+      <p style="margin-top:10px;font-weight:700">Faixa de códigos</p><div class="field" style="margin-top:4px"><select id="devslot" data-change="devSlot" style="flex:1;border:0;background:transparent;font:500 15px 'Manrope',sans-serif;height:46px;outline:0">${Array.from({ length: SLOTS }, (_, k) => { const o = devs.find(x => x.slot === k && x.id !== dv.id); return `<option value="${k}" ${dv.slot === k ? 'selected' : ''} ${o ? 'disabled' : ''}>${slotLabel(k)}${o ? ' · ' + esc(o.name) : ''}</option>`; }).join('')}</select></div>
+      <p style="margin-top:10px">Cada aparelho tem a sua faixa, e assim os códigos nunca se repetem entre eles. Trocar a faixa só vale para músicas novas.</p><div class="mono" style="font-size:12px;font-weight:600;margin-top:6px">Próximo código: ${next}</div>
+      ${devs.filter(x => x.id !== dv.id).length ? `<p style="margin-top:12px;font-weight:700">Outros aparelhos cadastrados</p>${devs.filter(x => x.id !== dv.id).map(x => `<div class="fx ac g8" style="margin-top:4px"><span class="fx1 ell">${esc(x.name)} <span class="mono muted" style="font-size:12px">${slotLabel(x.slot)}</span></span>${btn('Remover', 'devRemove', { cls: 'text sm', d: { id: x.id } })}</div>`).join('')}` : (ghOn() ? '' : `<p style="margin-top:10px;font-size:12px">Os outros aparelhos aparecem aqui depois que a sincronização com o GitHub estiver ligada.</p>`)}</div>`,
     tv: `<div class="card"><div class="fx ac g8"><h3 class="fx1">Enviar para a TV</h3><span class="fx ac g6 muted" style="font-size:12px;font-weight:700"><span class="dot ${D.settings.tvScreen ? 'ok' : 'unverified'}"></span>${D.settings.tvScreen ? 'Pareada: ' + esc(D.settings.tvScreen.name) : 'Não pareada'}</span></div>
       <p>Recurso não oficial do YouTube. Precisa de um proxy seu (veja o passo a passo no LEIA-ME) para o navegador conseguir falar com o YouTube.</p>
       <p style="margin-top:10px;font-weight:700">Endereço do proxy</p><div class="field" style="margin-top:4px"><input id="tvproxy" data-change="tvProxy" value="${esc(D.settings.tvProxy || '')}" placeholder="https://karatube.seunome.workers.dev" autocapitalize="off" spellcheck="false"></div>
@@ -1622,9 +1665,10 @@ function viewFirstRun() {
   return `<div class="shell" style="justify-content:center"><div class="scroll pad" style="flex:none;max-height:100%;padding-top:24px;padding-bottom:16px;max-width:520px;width:100%;margin:0 auto">
     <div class="logo" style="width:72px;height:72px;border-radius:20px">${logo(48)}</div>
     <div style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:20px">Bem-vindo ao KaraTube</div>
-    <div class="muted" style="margin-top:6px">Antes de começar: este aparelho é qual?</div>
-    <div style="margin-top:18px">${rc('cel', 'Celular', 'Códigos novos começam com dígito par: <b style="font-family:var(--mono,monospace)">000001</b>, 000002… depois 200000.')}${rc('tab', 'Tablet', 'Códigos novos começam com dígito ímpar: <b style="font-family:var(--mono,monospace)">100001</b>, 100002… depois 300000.')}</div>
-    <div class="hint" style="margin-bottom:16px">Cada aparelho usa uma faixa diferente, assim o catálogo do celular e o do tablet nunca repetem um número ao juntar os dois. Dá para mudar nos Ajustes, mas só vale para músicas novas.</div>
+    <div class="muted" style="margin-top:6px">Antes de começar: que aparelho é este?</div>
+    <div style="margin-top:18px">${rc('cel', 'Celular', 'Faixa de códigos: <b style="font-family:var(--mono,monospace)">000001</b> a 099999.')}${rc('tab', 'Tablet', 'Faixa de códigos: <b style="font-family:var(--mono,monospace)">100000</b> a 199999.')}</div>
+    <p style="margin:14px 0 4px;font-weight:700">Apelido do aparelho</p><div class="field"><input data-change="frName" value="${esc(ui.fr.name)}" placeholder="${d === 'tab' ? 'Tablet' : 'Celular'}" autocomplete="off" maxlength="30"></div>
+    <div class="hint" style="margin-bottom:16px">Cada aparelho usa uma faixa própria de números, assim o catálogo do celular e o do tablet nunca repetem um código ao juntar os dois. Com a sincronização ligada, os aparelhos ficam registrados no GitHub. Dá para mudar o apelido e a faixa nos Ajustes.</div>
     <div class="col g8">${btn('Continuar', 'frGo', { cls: 'primary lg' })}${btn('Já tenho um backup · Importar', 'frImport', { cls: 'text' })}</div></div></div>`;
 }
 
@@ -1801,7 +1845,7 @@ SHEETS.listPick = t => {
     <div class="sh-b" id="lplist" data-sk="lp" style="padding-top:8px">${lpRows(res, have, t)}</div>${shFoot(btn('Cancelar', 'closeSheet', { cls: 'lg' }) + btn(n ? `Adicionar ${n}` : 'Adicionar', 'doListPick', { cls: 'primary grow lg', dis: !n }))}`
   };
 };
-const lpRows = (res, have, t) => res.map(s => `<label class="srow" style="${have.has(s.id) ? 'opacity:.55' : ''}"><input type="checkbox" data-change="lpChk" data-id="${s.id}" ${have.has(s.id) || t.sel[s.id] ? 'checked' : ''} ${have.has(s.id) ? 'disabled' : ''} aria-label="${esc(s.title)}">${thumbHtml(s, bestVersion(s.id), 44, 20, 10)}<div class="fx1"><div class="ell jp t" style="font-size:15px">${esc(s.title)}</div><div class="r ell"><span class="mono" style="font-size:12px">${s.id}</span> · ${esc(singersStr(s))}${have.has(s.id) ? ' · já na lista' : ''}</div></div></label>`).join('') || '<div class="hint">Nada encontrado.</div>';
+const lpRows = (res, have, t) => res.map(s => `<label class="srow" style="${have.has(s.id) ? 'opacity:.55' : ''}"><input type="checkbox" data-change="lpChk" data-id="${s.id}" ${have.has(s.id) || t.sel[s.id] ? 'checked' : ''} ${have.has(s.id) ? 'disabled' : ''} aria-label="${esc(s.title)}">${songThumb(s, bestVersion(s.id), 44, 20, 10)}<div class="fx1"><div class="ell jp t" style="font-size:15px">${esc(s.title)}</div><div class="r ell"><span class="mono" style="font-size:12px">${s.id}</span> · ${esc(singersStr(s))}${have.has(s.id) ? ' · já na lista' : ''}</div></div></label>`).join('') || '<div class="hint">Nada encontrado.</div>';
 
 /* ---------- buscar online ---------- */
 function onlineTag(f, t, seen) {
@@ -1916,7 +1960,7 @@ async function doImportFlow(first) {
   try {
     const f = await pickFile(); if (!f) return;
     const plan = await readBackupFile(f);
-    if (first) { D.settings.device = ui.fr.device; save('settings'); }
+    if (first) { createDev(ui.fr.device, ui.fr.name); save('settings'); }
     openSheet({ type: 'import', plan });
   } catch (e) { toast(e.message || 'Não consegui ler o arquivo.'); }
 }
@@ -2030,7 +2074,7 @@ const ACT = {
   import() { doImportFlow(false); },
   frImport() { doImportFlow(true); },
   frDev(d) { ui.fr.device = d.v; render(); },
-  frGo() { D.settings.device = ui.fr.device; D.settings.created = now(); save('settings'); render(); },
+  frGo() { createDev(ui.fr.device, ui.fr.name); D.settings.created = now(); save('settings'); render(); },
   impChoice(d) { const x = sh().plan.difs.find(y => y.id === d.id); if (x) { x.choice = d.v; render(); } },
   impApply() {
     const t = sh(); const r = applyImport(t.plan); ui.sheets = []; ui.songSel = null;
@@ -2038,7 +2082,11 @@ const ACT = {
   },
   /* ajustes */
   theme(d) { D.settings.theme = d.v; save('settings'); render(); },
-  device(d) { D.settings.device = d.v; save('settings'); render(); },
+  devRemove(d) {
+    const l = D.settings.devs || []; const x = l.find(y => y.id === d.id); if (!x) return;
+    if (!confirm('Remover "' + x.name + '" do cadastro de aparelhos? A faixa dele fica livre para outro aparelho.')) return;
+    D.settings.devs = l.filter(y => y.id !== d.id); D.settings.devDel = (D.settings.devDel || []).concat(d.id); save('settings'); render(); syncSoon(1500);
+  },
   async persist() { try { persistent = await navigator.storage.persist(); } catch (e) { persistent = false; } toast(persistent ? 'Dados protegidos.' : 'O navegador não concedeu a proteção.'); render(); },
   /* listas */
   lisSeg(d) { ui.lisSeg = d.v; ui.listSel = null; render(); },
@@ -2185,6 +2233,9 @@ document.addEventListener('change', e => {
     case 'listName': { const l = D.lists.find(x => x.id === ui.listSel); if (l) { l.name = t.value.trim() || l.name; l.updated = now(); save('lists'); render(); } break; }
     case 'artUrl': { const u = t.value.trim(); if (/^https?:\/\//i.test(u)) setArt(u); else if (u) toast('Cole um link que comece com http.'); break; }
     case 'artFile': { const f = t.files && t.files[0]; if (f) { const r = new FileReader(); r.onload = () => shrinkImage(r.result, 420).then(d => { ui.draft.art = d; render(); }).catch(() => toast('Não consegui ler esta imagem.')); r.readAsDataURL(f); } break; }
+    case 'devName': { const dv = devInfo(); if (dv) { dv.name = t.value.trim() || dv.name; save('settings'); render(); syncSoon(3000); } break; }
+    case 'devSlot': { const dv = devInfo(); const k = parseInt(t.value, 10); if (dv && k >= 0) { dv.slot = k; save('settings'); render(); syncSoon(1500); toast('Faixa trocada. Vale só para músicas novas.'); } break; }
+    case 'frName': ui.fr.name = t.value; break;
     case 'tvProxy': D.settings.tvProxy = t.value.trim(); save('settings'); break;
     case 'onBase': { const i = s.sel.indexOf(t.dataset.id); if (t.checked && i < 0) s.sel.push(t.dataset.id); if (!t.checked && i >= 0) s.sel.splice(i, 1); render(); break; }
     case 'onChk': s.chk[t.dataset.k] = t.checked; render(); break;
