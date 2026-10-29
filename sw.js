@@ -1,4 +1,4 @@
-const CACHE = 'karatube-1793230916';
+const CACHE = 'karatube-1793301630';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-180.png'];
 const EXTRA = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdn.jsdelivr.net', 'i.ytimg.com'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });

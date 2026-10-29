@@ -215,7 +215,7 @@ details.box summary::-webkit-details-marker{display:none}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.4.0",APP_BUILD=1793230916;
+const APP_VERSION="1.4.1",APP_BUILD=1793301630;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -360,9 +360,10 @@ function devInfo() {
   }
   return st.dev;
 }
-function createDev(kind, name) {
-  D.settings.device = kind;
-  D.settings.dev = { id: 'd' + Math.random().toString(36).slice(2, 10) + now().toString(36), name: (name || '').trim() || (kind === 'tab' ? 'Tablet' : 'Celular'), slot: kind === 'tab' ? 1 : 0 };
+function createDev(name) {
+  const tab = innerWidth >= 700; // aparelho largo = tablet: começa na faixa 1; a faixa certa é confirmada na 1ª sincronização
+  D.settings.device = tab ? 'tab' : 'cel';
+  D.settings.dev = { id: 'd' + Math.random().toString(36).slice(2, 10) + now().toString(36), name: (name || '').trim() || (tab ? 'Tablet' : 'Celular'), slot: tab ? 1 : 0 };
 }
 const devName = () => { const d = devInfo(); return d ? d.name : 'aparelho'; };
 function nextSongNumber(slot) {
@@ -962,6 +963,8 @@ function mergeRemote(rem) {
   D.lists = mergeSet('l', D.lists, rem.lists || [], x => x.id, tomb, stat);
   const vc = new Set(D.versions.map(v => v.code)); const hid = new Set(D.history.map(h => h.id));
   (rem.history || []).forEach(h => { if (!hid.has(h.id) && vc.has(h.code)) { D.history.push(h); stat.local++; } });
+  const rmap = new Map((rem.history || []).map(h => [h.id, h]));
+  D.history.forEach(h => { if (!vc.has(h.code)) { const r = rmap.get(h.id); if (r && vc.has(r.code)) h.code = r.code; } });
   D.history = D.history.filter(h => vc.has(h.code));
   const rh = new Set((rem.history || []).map(h => h.id)); if (D.history.some(h => !rh.has(h.id))) stat.remote++;
   return stat;
@@ -985,6 +988,43 @@ function reconcileDevices(reg) {
   if (!mine) { list.push({ id: me.id, name: me.name, slot: me.slot, at: now() }); changed = true; }
   else if (mine.name !== me.name || mine.slot !== me.slot) { mine.name = me.name; mine.slot = me.slot; changed = true; }
   return changed;
+}
+// Pronta para cadastrar: sincronização ligada, já sincronizou ao menos uma vez e este aparelho está no cadastro com a faixa confirmada.
+function syncReady() {
+  if (!ghOn()) return false; const me = devInfo();
+  return !!(ghCfg().last && me && (D.settings.devs || []).some(x => x.id === me.id && x.slot === me.slot));
+}
+// Reorganizar códigos: músicas em sequência contínua (000001, 000002, 000003…), na ordem atual dos códigos.
+function renumPlan() {
+  const songs = D.songs.slice().sort((a, b) => parseInt(a.id, 10) - parseInt(b.id, 10));
+  const map = {}; songs.forEach((s, i) => { map[s.id] = pad(i + 1, 6); });
+  return { map, changed: songs.filter(s => map[s.id] !== s.id) };
+}
+async function renumberAll() {
+  if (!syncReady() || SYNC.busy) return;
+  await ghSyncNow(false);
+  const g = ghCfg(); if (!g || g.err || ui.syncMsg === 'Sincronização cancelada.') { toast('Sincronize com sucesso antes de reorganizar.', { ms: 4000 }); return; }
+  const { map, changed } = renumPlan();
+  if (!changed.length) { toast('Os códigos já estão em sequência.'); return; }
+  const ex = changed.slice(0, 4).map(s => s.id + ' → ' + map[s.id]);
+  const msg = ['Reorganizar ' + D.songs.length + ' músicas em sequência? ' + changed.length + ' vão mudar de código:'].concat(ex, changed.length > 4 ? ['…'] : [], ['',
+    'Listas, histórico e fila acompanham. Códigos anotados fora do app deixam de valer, e não dá para desfazer (o GitHub guarda o histórico do catálogo).',
+    'Antes de cadastrar músicas em outro aparelho, sincronize-o.']).join(String.fromCharCode(10));
+  if (!confirm(msg)) return;
+  const t0 = now(); SYNC.applying = true;
+  const vmap = {}; D.versions.forEach(v => { vmap[v.code] = map[v.song] + '-' + v.code.split('-')[1]; });
+  const newS = new Set(Object.values(map)), newV = new Set(Object.values(vmap));
+  D.songs.forEach(s => { if (!newS.has(s.id)) D.sync.tomb[sKey('s', s.id)] = t0; });
+  D.versions.forEach(v => { if (!newV.has(v.code)) D.sync.tomb[sKey('v', v.code)] = t0; });
+  D.songs.forEach(s => { s.id = map[s.id]; if (s.coverOf && map[s.coverOf]) s.coverOf = map[s.coverOf]; s.updated = t0 + 1; });
+  D.versions.forEach(v => { const c = vmap[v.code]; v.song = map[v.song]; v.code = c; v.updated = t0 + 1; });
+  D.lists.forEach(l => { l.items = (l.items || []).map(c => vmap[c] || c); l.updated = t0 + 1; });
+  D.history.forEach(h => { h.code = vmap[h.code] || h.code; });
+  D.queue.forEach(q => { q.code = vmap[q.code] || q.code; });
+  ui.songSel = ui.songSel ? (map[ui.songSel] || null) : null; ui.draft = null; ui.sheets = [];
+  reindex(); save('songs', 'versions', 'lists', 'history', 'queue', 'sync'); SYNC.applying = false;
+  await ghSyncNow(false);
+  toast(ghCfg().err ? 'Reorganizado aqui, mas a sincronização falhou. Tente "Sincronizar agora".' : 'Códigos reorganizados e sincronizados.', { ms: 4000 }); render();
 }
 function markKnown() { D.sync.known = { s: D.songs.map(x => x.id), v: D.versions.map(x => x.code), l: D.lists.map(x => x.id) }; }
 
@@ -1033,7 +1073,8 @@ async function ghSyncNow(manual) {
         catch (e) { if ((e.status === 409 || e.status === 422) && attempt < 2) { SYNC.applying = false; continue; } throw e; }
       }
       markKnown(); g.last = now(); g.err = ''; summary = stat.local ? 'Atualizado com ' + stat.local + (stat.local === 1 ? ' mudança' : ' mudanças') + ' do GitHub.' : 'Tudo em dia.';
-      reindex(); save('songs', 'versions', 'lists', 'history', 'sync', 'settings');
+      D.queue = D.queue.filter(q => D.versions.some(v => v.code === q.code));
+      reindex(); save('songs', 'versions', 'lists', 'history', 'queue', 'sync', 'settings');
       if (stat.local) { ui.songSel = ui.songSel && X.song[ui.songSel] ? ui.songSel : null; }
       break;
     }
@@ -1058,7 +1099,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 const app = document.getElementById('app');
 const ui = {
   wide: false, tab: 'cat', songSel: null, query: '', f: F0(), sort: 'code', dir: 'asc', limit: 150,
-  lisSeg: 'listas', listSel: null, draft: null, sheets: [], nowRating: 0, nowKey: null, fr: { device: 'cel', name: '' }
+  lisSeg: 'listas', listSel: null, draft: null, sheets: [], nowRating: 0, nowKey: null, fr: { name: '' }
 };
 
 /* ---------- peças pequenas ---------- */
@@ -1231,12 +1272,12 @@ function catalogList() {
   <div class="scroll pad" id="songlist" data-sk="cat">${listBody(res)}</div>`;
 }
 function catalogEmpty() {
-  const first = nextSongCode();
+  const first = nextSongCode(); const ready = syncReady();
   return `<div class="hdr"><div class="logo">${logo(26)}</div><h1>KaraTube</h1></div>
   <div class="pad" style="padding-bottom:8px"><div class="searchbox" style="opacity:.6">${ic('search', 20)}<span>Título, cantor, letra, origem…</span></div></div>
   <div class="empty"><div class="big">${ic('mic', 52, 1.6)}</div><h3>Seu catálogo está vazio</h3>
-  <p>Cole o link de um vídeo do YouTube e o KaraTube preenche título e canal. O primeiro código será <b class="mono" style="color:var(--text)">${first}</b>.</p>
-  <div class="col g8" style="width:100%;max-width:360px;margin-top:22px">${btn('Cadastrar a primeira música', 'newSong', { cls: 'primary lg', icon: 'plus' })}${btn('Importar um backup', 'import', { cls: 'lg', icon: 'upload' })}</div></div>`;
+  <p>${ready ? `Cole o link de um vídeo do YouTube e o KaraTube preenche título e canal. O primeiro código será <b class="mono" style="color:var(--text)">${first}</b>.` : 'Ligue a sincronização com o GitHub nos Ajustes para poder cadastrar músicas. Se você já tem um backup, pode importar.'}</p>
+  <div class="col g8" style="width:100%;max-width:360px;margin-top:22px">${ready ? btn('Cadastrar a primeira música', 'newSong', { cls: 'primary lg', icon: 'plus' }) : btn('Ligar a sincronização', 'goSettings', { cls: 'primary lg' })}${btn('Importar um backup', 'import', { cls: 'lg', icon: 'upload' })}</div></div>`;
 }
 
 /* ---------- detalhe da música ---------- */
@@ -1470,9 +1511,16 @@ function songResults(d) {
   if (!res.length) return `<div class="hint">Nenhuma música encontrada.</div>`;
   return `<div style="margin-top:8px">${res.map(s => `<div class="srow" role="button" tabindex="0" data-act="pickSong" data-id="${s.id}">${songThumb(s, bestVersion(s.id), 44, 20, 10)}<div class="fx1"><div class="ell jp t" style="font-size:15px">${esc(s.title)}</div><div class="r ell mono" style="font-size:12px">${s.id} · ${esc(singersStr(s))}</div></div></div>`).join('')}</div>`;
 }
+function lockedView(titulo) {
+  const on = ghOn();
+  return `<div class="hdr"><h1>${titulo}</h1></div><div class="empty"><div class="big">${ic('warn', 52, 1.6)}</div><h3>Ligue a sincronização antes de cadastrar</h3>
+  <p>Para os códigos nunca se repetirem entre o celular e o tablet, o cadastro só é liberado depois que este aparelho estiver ligado ao GitHub e registrado com a sua faixa de códigos.</p>
+  <div class="col g8" style="width:100%;max-width:360px;margin-top:22px">${on ? btn('Sincronizar agora', 'ghSync', { cls: 'primary lg' }) : ''}${btn(on ? 'Abrir os Ajustes' : 'Ligar a sincronização', 'goSettings', { cls: on ? 'lg' : 'primary lg' })}</div></div>`;
+}
 function viewForm() {
   if (!ui.draft) ui.draft = newDraft('new');
   const d = ui.draft; const edit = d.mode === 'edit';
+  if (!edit && !syncReady()) return lockedView('Cadastrar');
   const showSong = d.mode === 'new' || (edit && d.scope === 'song');
   const showVer = d.mode !== 'edit' || d.scope === 'version';
   const code = d.mode === 'new' ? (() => { try { return nextSongCode() + '-01'; } catch (e) { return '—'; } })() : d.mode === 'version' ? (d.songCode ? nextVersionCode(d.songCode) : '—') : (d.scope === 'song' ? d.songCode : d.verCode);
@@ -1634,6 +1682,9 @@ function viewSettings() {
       <p style="margin-top:10px;font-weight:700">Faixa de códigos</p><div class="field" style="margin-top:4px"><select id="devslot" data-change="devSlot" style="flex:1;border:0;background:transparent;font:500 15px 'Manrope',sans-serif;height:46px;outline:0">${Array.from({ length: SLOTS }, (_, k) => { const o = devs.find(x => x.slot === k && x.id !== dv.id); return `<option value="${k}" ${dv.slot === k ? 'selected' : ''} ${o ? 'disabled' : ''}>${slotLabel(k)}${o ? ' · ' + esc(o.name) : ''}</option>`; }).join('')}</select></div>
       <p style="margin-top:10px">Cada aparelho tem a sua faixa, e assim os códigos nunca se repetem entre eles. Trocar a faixa só vale para músicas novas.</p><div class="mono" style="font-size:12px;font-weight:600;margin-top:6px">Próximo código: ${next}</div>
       ${devs.filter(x => x.id !== dv.id).length ? `<p style="margin-top:12px;font-weight:700">Outros aparelhos cadastrados</p>${devs.filter(x => x.id !== dv.id).map(x => `<div class="fx ac g8" style="margin-top:4px"><span class="fx1 ell">${esc(x.name)} <span class="mono muted" style="font-size:12px">${slotLabel(x.slot)}</span></span>${btn('Remover', 'devRemove', { cls: 'text sm', d: { id: x.id } })}</div>`).join('')}` : (ghOn() ? '' : `<p style="margin-top:10px;font-size:12px">Os outros aparelhos aparecem aqui depois que a sincronização com o GitHub estiver ligada.</p>`)}</div>`,
+    order: (() => { if (!syncReady()) return ''; const pl = renumPlan(); return `<div class="card"><h3>Organizar códigos</h3><p>Deixa as músicas em sequência, sem buracos: 000001, 000002, 000003… A ordem atual é mantida. Listas, histórico e fila acompanham.</p>
+      <div class="mono muted" style="font-size:12px;margin-top:8px">${D.songs.length} músicas · ${pl.changed.length ? pl.changed.length + ' mudariam de código' : 'já em sequência'}</div>
+      <div style="margin-top:10px">${btn('Reorganizar códigos', 'renumber', { cls: 'fx1', style: 'width:100%' })}</div></div>`; })(),
     tv: `<div class="card"><div class="fx ac g8"><h3 class="fx1">Enviar para a TV</h3><span class="fx ac g6 muted" style="font-size:12px;font-weight:700"><span class="dot ${D.settings.tvScreen ? 'ok' : 'unverified'}"></span>${D.settings.tvScreen ? 'Pareada: ' + esc(D.settings.tvScreen.name) : 'Não pareada'}</span></div>
       <p>Recurso não oficial do YouTube. Precisa de um proxy seu (veja o passo a passo no LEIA-ME) para o navegador conseguir falar com o YouTube.</p>
       <p style="margin-top:10px;font-weight:700">Endereço do proxy</p><div class="field" style="margin-top:4px"><input id="tvproxy" data-change="tvProxy" value="${esc(D.settings.tvProxy || '')}" placeholder="https://karatube.seunome.workers.dev" autocapitalize="off" spellcheck="false"></div>
@@ -1645,6 +1696,7 @@ function viewSettings() {
       <p style="margin-top:10px;font-weight:700">Token de acesso</p><div class="field" style="margin-top:4px"><input id="ghtoken" type="password" value="" placeholder="${ghOn() ? 'guardado neste aparelho (cole outro para trocar)' : 'github_pat_…'}" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
       <div class="fx g8" style="margin-top:10px">${btn(ghOn() ? 'Salvar e sincronizar' : 'Conectar e sincronizar', 'ghSave', { cls: 'primary fx1' })}${ghOn() ? btn('Sincronizar agora', 'ghSync', { cls: 'fx1' }) : ''}</div>
       ${ghOn() ? `<div style="margin-top:8px">${btn('Desconectar', 'ghOff', { cls: 'text sm' })}</div>` : ''}
+      ${syncReady() ? '' : `<p style="font-size:12px;margin-top:8px;color:var(--danger)">Cadastro de músicas bloqueado até a primeira sincronização com o GitHub.</p>`}
       <p style="font-size:12px;margin-top:8px">${esc(ui.syncMsg || '')}${D.settings.gh && D.settings.gh.last ? ' Última sincronização: ' + fmtDay(D.settings.gh.last) + ' ' + new Date(D.settings.gh.last).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + '.' : ''}</p></div>`,
     ver: `<div class="card"><h3>Versão do app</h3><p class="mono" style="font-size:13px;font-weight:600;margin-top:4px">v${APP_VERSION} · ${fmtBuild(APP_BUILD * 1000)}</p>
       <p style="margin-top:6px">${ui.upd ? (ui.upd.newer ? 'Há uma versão mais nova: v' + esc(ui.upd.v) + '.' : 'Você está na versão mais nova.') : 'Toque para ver se há versão mais nova.'}</p>
@@ -1654,21 +1706,19 @@ function viewSettings() {
       ${persistent ? '' : `<div style="margin-top:10px">${btn('Pedir proteção dos dados', 'persist', { cls: 'sm' })}</div>`}</div>`
   };
   const hd = `<div class="hdr"><h1>Ajustes</h1></div>`;
-  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.store}</div><div>${cards.backup}${cards.sync}${cards.tv}${cards.ver}</div></div></div>`;
-  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.sync}${cards.device}${cards.tv}${cards.store}${cards.ver}</div>`;
+  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.order}${cards.store}</div><div>${cards.backup}${cards.sync}${cards.tv}${cards.ver}</div></div></div>`;
+  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.sync}${cards.device}${cards.order}${cards.tv}${cards.store}${cards.ver}</div>`;
 }
 
 /* ---------- primeira abertura ---------- */
 function viewFirstRun() {
-  const d = ui.fr.device;
-  const rc = (id, t, txt) => `<div class="radiocard ${d === id ? 'sel' : ''}" role="radio" aria-checked="${d === id}" tabindex="0" data-act="frDev" data-v="${id}"><span class="rdot ${d === id ? 'on' : ''}"></span><span class="fx1"><b>${t}</b><span class="d">${txt}</span></span></div>`;
+  const ph = innerWidth >= 700 ? 'Tablet' : 'Celular';
   return `<div class="shell" style="justify-content:center"><div class="scroll pad" style="flex:none;max-height:100%;padding-top:24px;padding-bottom:16px;max-width:520px;width:100%;margin:0 auto">
     <div class="logo" style="width:72px;height:72px;border-radius:20px">${logo(48)}</div>
     <div style="font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:20px">Bem-vindo ao KaraTube</div>
-    <div class="muted" style="margin-top:6px">Antes de começar: que aparelho é este?</div>
-    <div style="margin-top:18px">${rc('cel', 'Celular', 'Faixa de códigos: <b style="font-family:var(--mono,monospace)">000001</b> a 099999.')}${rc('tab', 'Tablet', 'Faixa de códigos: <b style="font-family:var(--mono,monospace)">100000</b> a 199999.')}</div>
-    <p style="margin:14px 0 4px;font-weight:700">Apelido do aparelho</p><div class="field"><input data-change="frName" value="${esc(ui.fr.name)}" placeholder="${d === 'tab' ? 'Tablet' : 'Celular'}" autocomplete="off" maxlength="30"></div>
-    <div class="hint" style="margin-bottom:16px">Cada aparelho usa uma faixa própria de números, assim o catálogo do celular e o do tablet nunca repetem um código ao juntar os dois. Com a sincronização ligada, os aparelhos ficam registrados no GitHub. Dá para mudar o apelido e a faixa nos Ajustes.</div>
+    <div class="muted" style="margin-top:6px">Dê um apelido para este aparelho.</div>
+    <p style="margin:18px 0 4px;font-weight:700">Apelido do aparelho</p><div class="field"><input id="frname" data-change="frName" data-enter="frGo" value="${esc(ui.fr.name)}" placeholder="${ph}" autocomplete="off" maxlength="30"></div>
+    <div class="hint" style="margin-bottom:16px">Cada aparelho usa uma faixa própria de códigos, assim o catálogo do celular e o do tablet nunca repetem um número. Ligue a sincronização com o GitHub nos Ajustes para poder cadastrar músicas. Lá também dá para mudar o apelido e a faixa.</div>
     <div class="col g8">${btn('Continuar', 'frGo', { cls: 'primary lg' })}${btn('Já tenho um backup · Importar', 'frImport', { cls: 'text' })}</div></div></div>`;
 }
 
@@ -1960,7 +2010,7 @@ async function doImportFlow(first) {
   try {
     const f = await pickFile(); if (!f) return;
     const plan = await readBackupFile(f);
-    if (first) { createDev(ui.fr.device, ui.fr.name); save('settings'); }
+    if (first) { const e = $('#frname'); createDev(e ? e.value : ui.fr.name); save('settings'); }
     openSheet({ type: 'import', plan });
   } catch (e) { toast(e.message || 'Não consegui ler o arquivo.'); }
 }
@@ -2073,8 +2123,9 @@ const ACT = {
   snooze() { D.settings.snoozeUntil = now() + 7 * DAY; save('settings'); render(); },
   import() { doImportFlow(false); },
   frImport() { doImportFlow(true); },
-  frDev(d) { ui.fr.device = d.v; render(); },
-  frGo() { createDev(ui.fr.device, ui.fr.name); D.settings.created = now(); save('settings'); render(); },
+  goSettings() { ui.tab = 'aju'; ui.sheets = []; render(); },
+  async renumber() { await renumberAll(); },
+  frGo() { const e = $('#frname'); createDev(e ? e.value : ui.fr.name); D.settings.created = now(); save('settings'); render(); },
   impChoice(d) { const x = sh().plan.difs.find(y => y.id === d.id); if (x) { x.choice = d.v; render(); } },
   impApply() {
     const t = sh(); const r = applyImport(t.plan); ui.sheets = []; ui.songSel = null;
