@@ -215,7 +215,7 @@ details.box summary::-webkit-details-marker{display:none}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.4.1",APP_BUILD=1793301630;
+const APP_VERSION="1.5.0",APP_BUILD=1793305861,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -280,6 +280,7 @@ const D = {
 };
 const KEYS = ['songs', 'versions', 'lists', 'history', 'queue', 'settings', 'sync'];
 const X = { song: {}, ver: {}, vid: {}, vers: {}, text: {} };
+const LSP = MGR ? 'ktm:' : 'kt:';
 let storageMode = 'idb';
 let persistent = null;
 
@@ -305,25 +306,25 @@ const store = {
   open() {
     return new Promise((res, rej) => {
       if (!window.indexedDB) return rej(new Error('sem IndexedDB'));
-      const r = indexedDB.open('karatube', 1);
+      const r = indexedDB.open(MGR ? 'karatube-gerenciador' : 'karatube', 1);
       r.onupgradeneeded = () => r.result.createObjectStore('kv');
       r.onsuccess = () => { this.db = r.result; res(); };
       r.onerror = () => rej(r.error);
     });
   },
   get(k) {
-    if (storageMode === 'ls') { try { const v = localStorage.getItem('kt:' + k); return Promise.resolve(v ? JSON.parse(v) : undefined); } catch (e) { return Promise.resolve(undefined); } }
+    if (storageMode === 'ls') { try { const v = localStorage.getItem(LSP + k); return Promise.resolve(v ? JSON.parse(v) : undefined); } catch (e) { return Promise.resolve(undefined); } }
     return new Promise((res, rej) => { const q = this.db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
   },
   set(k, v) {
-    if (storageMode === 'ls') { try { localStorage.setItem('kt:' + k, JSON.stringify(v)); } catch (e) { storageMode = 'mem'; } return Promise.resolve(); }
+    if (storageMode === 'ls') { try { localStorage.setItem(LSP + k, JSON.stringify(v)); } catch (e) { storageMode = 'mem'; } return Promise.resolve(); }
     if (storageMode === 'mem') return Promise.resolve();
     return new Promise((res, rej) => { const t = this.db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); });
   }
 };
 async function loadState() {
   try { await store.open(); storageMode = 'idb'; }
-  catch (e) { storageMode = 'ls'; try { localStorage.setItem('kt:_', '1'); } catch (e2) { storageMode = 'mem'; } }
+  catch (e) { storageMode = 'ls'; try { localStorage.setItem(LSP + '_', '1'); } catch (e2) { storageMode = 'mem'; } }
   if (storageMode !== 'mem') {
     for (const k of KEYS) {
       let v;
@@ -1665,7 +1666,7 @@ function viewHistory() {
 }
 
 /* ---------- ajustes ---------- */
-function viewSettings() {
+function settingsCards() {
   const dv = devInfo() || { name: '', slot: 0 }; const devs = D.settings.devs || [];
   let next = '—'; try { next = nextSongCode() + '-01'; } catch (e) { }
   const th = D.settings.theme;
@@ -1705,6 +1706,10 @@ function viewSettings() {
       ${storageMode !== 'idb' ? `<p style="color:var(--danger);margin-top:6px">Atenção: este navegador não está guardando os dados de forma segura (${storageMode === 'ls' ? 'modo reserva' : 'só na memória, vai perder ao fechar'}).</p>` : ''}
       ${persistent ? '' : `<div style="margin-top:10px">${btn('Pedir proteção dos dados', 'persist', { cls: 'sm' })}</div>`}</div>`
   };
+  return cards;
+}
+function viewSettings() {
+  const cards = settingsCards();
   const hd = `<div class="hdr"><h1>Ajustes</h1></div>`;
   if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.order}${cards.store}</div><div>${cards.backup}${cards.sync}${cards.tv}${cards.ver}</div></div></div>`;
   return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.sync}${cards.device}${cards.order}${cards.tv}${cards.store}${cards.ver}</div>`;
@@ -2309,7 +2314,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener && matchMedia('(pref
   await loadState();
   ui.sort = D.settings.sort || 'code'; ui.dir = D.settings.dir || 'asc';
   setWide(); render();
-  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { }); if (/^https?:$/.test(location.protocol) && navigator.onLine) setTimeout(() => checkUpdate(true), 3000);
+  if (!MGR && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { }); if (!MGR && /^https?:$/.test(location.protocol) && navigator.onLine) setTimeout(() => checkUpdate(true), 3000);
   setTimeout(() => ghSyncNow(false), 3500);
 })();
 
