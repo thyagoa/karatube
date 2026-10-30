@@ -59,7 +59,7 @@ Não tem servidor: o catálogo fica no seu aparelho e em um **repositório priva
 
 Uma página só (`gerenciador.html`) para cadastrar e editar com teclado e tela grande, gravando direto no seu repositório de dados.
 
-- Abra `https://SEU-USUARIO.github.io/karatube/gerenciador.html` (ou o `gerenciador.html` do seu fork), ou baixe o arquivo e abra com duplo clique no Chrome. Ele também exige a sincronização: sem repositório e token, nada é cadastrado.
+- Abra `https://thyagoa.github.io/karatube/gerenciador.html` (ou o `gerenciador.html` do seu fork), ou baixe o arquivo e abra com duplo clique no Chrome. Ele também exige a sincronização: sem repositório e token, nada é cadastrado.
 - Na primeira vez informe: apelido, repositório de dados e token (mesmo da seção 4).
 - Cadastro igual ao do app (música, versão, busca online, romaji). **Ctrl+S** salva; em ~2 segundos já está no GitHub.
 - O computador entra como mais um aparelho, com a própria faixa de códigos.
