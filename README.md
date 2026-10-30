@@ -2,7 +2,7 @@
 
 Catálogo pessoal de karaokê que roda no navegador (PWA), feito para o celular, o tablet e o computador. Você cadastra os vídeos de karaokê do YouTube, cada música ganha um **código** (como numa máquina de karaokê), monta uma fila e abre o vídeo no app do YouTube ou manda para a TV.
 
-Não tem servidor nem conta: tudo fica no seu aparelho. Se quiser o mesmo catálogo em vários aparelhos, ele sincroniza com um **repositório privado seu no GitHub**.
+Não tem servidor: o catálogo fica no seu aparelho e em um **repositório privado seu no GitHub** (conta gratuita). A sincronização com esse repositório é **obrigatória para cadastrar músicas**; é ela que mantém celular, tablet e computador iguais e impede códigos repetidos. Sem ela, o app só deixa consultar e importar um backup.
 
 - App: <https://thyagoa.github.io/karatube/>
 - Gerenciador para o computador: <https://thyagoa.github.io/karatube/gerenciador.html>
@@ -26,14 +26,14 @@ Não tem servidor nem conta: tudo fica no seu aparelho. Se quiser o mesmo catál
 - **Romaji:** gera o título e a letra inicial em romaji a partir do japonês.
 - **Fila:** monte a fila da noite; a música sai da fila quando você marca "Cantei".
 - **Listas e histórico:** listas de músicas e o histórico do que foi cantado, com notas.
-- **Sincronização:** celular, tablet e computador ficam iguais, com cópia no seu GitHub.
+- **Sincronização (obrigatória para cadastrar):** celular, tablet e computador ficam iguais, com cópia no seu repositório privado do GitHub.
 - **Enviar para a TV:** opcional (recurso não oficial do YouTube).
 
 ## 2. Usando o app no dia a dia
 
 **Instalar:** abra o endereço do app no Chrome do celular ou tablet › menu ⋮ › *Adicionar à tela inicial* (ou *Criar atalho*).
 
-**Primeira abertura:** digite um apelido para o aparelho (ex.: "Celular do João"). Depois ligue a sincronização (veja a [seção 4](#4-montar-o-seu-próprio-karatube)): sem ela o app não deixa cadastrar músicas novas, de propósito, para que dois aparelhos nunca criem o mesmo código.
+**Primeira abertura:** digite um apelido para o aparelho (ex.: "Celular do João"). Depois ligue a sincronização com o seu repositório de dados (veja a [seção 4](#4-montar-o-seu-próprio-karatube)). Sem ela o app não deixa cadastrar músicas nem versões novas, de propósito, para que dois aparelhos nunca criem o mesmo código ou se sobrescrevam. Editar o que já existe e importar backup continuam liberados.
 
 **Cadastrar uma música:**
 1. Aba **Cadastrar** › cole a URL do YouTube.
@@ -59,21 +59,25 @@ Não tem servidor nem conta: tudo fica no seu aparelho. Se quiser o mesmo catál
 
 Uma página só (`gerenciador.html`) para cadastrar e editar com teclado e tela grande, gravando direto no seu repositório de dados.
 
-- Abra `https://thyagoa.github.io/karatube/gerenciador.html` (ou baixe o arquivo e abra com duplo clique no Chrome).
+- Abra `https://thyagoa.github.io/karatube/gerenciador.html` (ou o `gerenciador.html` do seu fork), ou baixe o arquivo e abra com duplo clique no Chrome. Ele também exige a sincronização: sem repositório e token, nada é cadastrado.
 - Na primeira vez informe: apelido, repositório de dados e token (mesmo da seção 4).
 - Cadastro igual ao do app (música, versão, busca online, romaji). **Ctrl+S** salva; em ~2 segundos já está no GitHub.
 - O computador entra como mais um aparelho, com a própria faixa de códigos.
 
 ## 4. Montar o seu próprio KaraTube
 
-Cada pessoa tem o próprio catálogo, em contas separadas. Você precisa de uma conta gratuita no GitHub e nada mais. Leva uns 15 minutos.
+Cada pessoa tem o próprio catálogo, em contas separadas. Você precisa de uma conta gratuita no GitHub. Leva uns 15 minutos.
 
-### Passo 1 — Copiar o app para a sua conta
+**O que é indispensável:** o seu **repositório de dados privado** e o seu **token** (passos 2 a 4). Sem eles o cadastro fica bloqueado.
+
+**O que é opcional:** o fork (passo 1). Duas formas de ter o app:
+- **Usar o app que já está no ar** (`thyagoa.github.io/karatube`): pule o passo 1. Você usa o app do Thyago, mas liga a *sua* sincronização, com o *seu* repositório e o *seu* token; os dados ficam no seu aparelho e no seu repositório, nunca no dele. Quando ele atualiza o app, você recebe a atualização.
+- **Ter a sua própria cópia** (passo 1): o app passa a morar na sua conta e só muda quando você quiser. Serve se você quer independência do Thyago, ou mudar o app.
+
+### Passo 1 (opcional) — Copiar o app para a sua conta
 1. Entre em <https://github.com/thyagoa/karatube> e clique em **Fork** (canto superior direito) › **Create fork**.
 2. No seu fork: **Settings › Pages**. Em *Build and deployment*, escolha *Deploy from a branch*, branch **main**, pasta **/ (root)**, e **Save**.
 3. Em 1–2 minutos o app estará em `https://SEU-USUARIO.github.io/karatube/` (a página de Pages mostra o endereço). O gerenciador fica em `.../gerenciador.html`.
-
-> Alternativa sem fork: pode usar direto o app do Thyago (`thyagoa.github.io/karatube`). Os dados ficam no **seu** aparelho e no **seu** repositório de dados, não no dele. O fork só serve se você quiser controlar a sua própria cópia do app.
 
 ### Passo 2 — Criar o repositório de dados (privado)
 É onde o seu catálogo fica guardado e sincronizado.
