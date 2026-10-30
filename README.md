@@ -93,7 +93,7 @@ O token é a "senha" que deixa o app ler e gravar só nesse repositório.
 ### Passo 4 — Ligar no app
 1. Abra o app (do seu fork ou o do Thyago), dê um apelido ao aparelho.
 2. **Ajustes › Sincronizar com o GitHub**.
-3. Em *Repositório de dados* escreva **`seu-usuario/karatube-dados`**. Atenção: o campo vem preenchido com `thyagoa/karatube-dados`; **troque pelo seu**, senão vai dar erro de acesso.
+3. Em *Repositório de dados* escreva **`seu-usuario/karatube-dados`**. O campo vem vazio de propósito; use o nome exato do repositório que você criou.
 4. Cole o token › **Conectar e sincronizar**.
 5. Quando o ponto ficar verde e a mensagem disser "Tudo em dia", o cadastro de músicas está liberado.
 

@@ -215,7 +215,7 @@ details.box summary::-webkit-details-marker{display:none}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.5.1",APP_BUILD=1793369117,MGR=false;
+const APP_VERSION="1.5.2",APP_BUILD=1793370224,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1697,7 +1697,7 @@ function settingsCards() {
       <div class="fx g8" style="margin-top:6px"><div class="field fx1"><input id="tvcode" placeholder="000 000 000 000" inputmode="numeric" style="font-family:'JetBrains Mono',monospace;font-size:16px"></div>${btn('Parear', 'tvPair', { style: 'height:48px' })}</div>`}</div>`,
     sync: `<div class="card"><div class="fx ac g8"><h3 class="fx1">Sincronizar com o GitHub</h3><span class="fx ac g6 muted" style="font-size:12px;font-weight:700"><span class="dot ${ghOn() ? (D.settings.gh.err ? 'broken' : 'ok') : 'unverified'}"></span>${ghOn() ? (D.settings.gh.err ? 'Com erro' : 'Ligada') : 'Desligada'}</span></div>
       <p>Mantém o catálogo igual no celular e no tablet, e guarda uma cópia no seu repositório privado do GitHub. A fila e os ajustes não são sincronizados.</p>
-      <p style="margin-top:10px;font-weight:700">Repositório de dados</p><div class="field" style="margin-top:4px"><input id="ghrepo" value="${esc((D.settings.gh || {}).repo || 'thyagoa/karatube-dados')}" placeholder="usuario/repositorio" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+      <p style="margin-top:10px;font-weight:700">Repositório de dados</p><div class="field" style="margin-top:4px"><input id="ghrepo" value="${esc((D.settings.gh || {}).repo || '')}" placeholder="usuario/repositorio" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
       <p style="margin-top:10px;font-weight:700">Token de acesso</p><div class="field" style="margin-top:4px"><input id="ghtoken" type="password" value="" placeholder="${ghOn() ? 'guardado neste aparelho (cole outro para trocar)' : 'github_pat_…'}" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
       <div class="fx g8" style="margin-top:10px">${btn(ghOn() ? 'Salvar e sincronizar' : 'Conectar e sincronizar', 'ghSave', { cls: 'primary fx1' })}${ghOn() ? btn('Sincronizar agora', 'ghSync', { cls: 'fx1' }) : ''}</div>
       ${ghOn() ? `<div style="margin-top:8px">${btn('Desconectar', 'ghOff', { cls: 'text sm' })}</div>` : ''}
