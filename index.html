@@ -215,7 +215,7 @@ details.box summary::-webkit-details-marker{display:none}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.5.0",APP_BUILD=1793305861,MGR=false;
+const APP_VERSION="1.5.1",APP_BUILD=1793369117,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1032,7 +1032,7 @@ function markKnown() { D.sync.known = { s: D.songs.map(x => x.id), v: D.versions
 async function ghSyncNow(manual) {
   if (!ghOn()) return; if (SYNC.busy) return;
   if (!navigator.onLine) { if (manual) toast('Sem internet. Tento de novo quando voltar.'); return; }
-  SYNC.busy = true; SYNC.lastTry = now(); ui.syncMsg = 'Sincronizando…'; if (ui.tab === 'aju') render();
+  SYNC.busy = true; SYNC.lastTry = now(); ui.syncMsg = 'Sincronizando…'; render();
   const g = ghCfg(); let summary = '';
   try {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -1177,14 +1177,18 @@ function applyTheme() {
 function setWide() { const w = window.innerWidth >= 1100; if (w !== ui.wide) { ui.wide = w; return true; } return false; }
 
 /* ---------- esqueleto celular / tablet ---------- */
+function syncBtn() {
+  const st = !ghOn() ? 'unverified' : (SYNC.busy ? 'unverified' : (ghCfg().err ? 'broken' : 'ok'));
+  return `<button data-act="syncBtn" title="Sincronizar agora" aria-label="Sincronizar agora">${SYNC.busy ? '<span class="spin"></span>' : ic('refresh', 24)}<span class="fx ac g6"><span class="dot ${st}"></span>Sync</span></button>`;
+}
 function nav() {
   const it = [['cat', 'Catálogo', 'grid'], ['cad', 'Cadastrar', 'addc'], ['lis', 'Listas', 'list'], ['aju', 'Ajustes', 'gear']];
-  return `<nav class="nav">${it.map(x => `<button class="${ui.tab === x[0] ? 'on' : ''}" data-act="tab" data-t="${x[0]}">${ic(x[2], 24)}${x[1]}</button>`).join('')}</nav>`;
+  return `<nav class="nav">${it.slice(0, 3).map(x => `<button class="${ui.tab === x[0] ? 'on' : ''}" data-act="tab" data-t="${x[0]}">${ic(x[2], 24)}${x[1]}</button>`).join('')}${syncBtn()}${it.slice(3).map(x => `<button class="${ui.tab === x[0] ? 'on' : ''}" data-act="tab" data-t="${x[0]}">${ic(x[2], 24)}${x[1]}</button>`).join('')}</nav>`;
 }
 function rail() {
   const it = [['cat', 'Catálogo', 'grid'], ['cad', 'Cadastrar', 'addc'], ['lis', 'Listas', 'list']];
   const b = x => `<button class="${ui.tab === x[0] ? 'on' : ''}" data-act="tab" data-t="${x[0]}">${ic(x[2], 24)}${x[1]}</button>`;
-  return `<aside class="rail"><div class="logo" style="width:48px;height:48px;border-radius:14px;margin-bottom:14px">${logo(32)}</div>${it.map(b).join('')}<div class="fx1"></div>${b(['aju', 'Ajustes', 'gear'])}</aside>`;
+  return `<aside class="rail"><div class="logo" style="width:48px;height:48px;border-radius:14px;margin-bottom:14px">${logo(32)}</div>${it.map(b).join('')}<div class="fx1"></div>${syncBtn()}${b(['aju', 'Ajustes', 'gear'])}</aside>`;
 }
 function minibar() {
   const cur = qCurrent();
@@ -2097,6 +2101,7 @@ const ACT = {
     save('settings'); render(); ghSyncNow(true);
   },
   ghSync() { ghSyncNow(true); },
+  syncBtn() { if (ghOn()) ghSyncNow(true); else { ui.tab = 'aju'; ui.sheets = []; render(); } },
   ghOff() { D.settings.gh = null; save('settings'); ui.syncMsg = ''; render(); toast('Sincronização desligada. Seus dados continuam aqui.'); },
   chkUpd() { checkUpdate(false); },
   doUpd() { applyUpdate(); },
