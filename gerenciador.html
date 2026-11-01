@@ -240,7 +240,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.9.0",APP_BUILD=1793508408,MGR=true;
+const APP_VERSION="1.10.0",APP_BUILD=1793508837,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -423,8 +423,12 @@ const tint = code => 1 + (parseInt(String(code).slice(0, 6), 10) % 6);
 const decadeOf = y => { y = parseInt(y, 10); if (!y || y < 1900) return ''; const d = Math.floor(y / 10) * 10; return 'anos ' + (d >= 2000 ? d : String(d).slice(2)) + (d >= 2000 ? '' : ''); };
 
 /* ---------------- busca, filtro, ordenação ---------------- */
-const F0 = () => ({ show: 'all', langs: [], origin: '', voice: '', vtype: '', link: '', minRating: 0, tags: [] });
-function filterCount(f) { return (f.show !== 'all' ? 1 : 0) + f.langs.length + (f.origin ? 1 : 0) + (f.voice ? 1 : 0) + (f.vtype ? 1 : 0) + (f.link ? 1 : 0) + (f.minRating ? 1 : 0) + f.tags.length; }
+// década da música a partir do ano ('2001' → '2000'); sem ano válido → DECADE_NONE
+const DECADE_NONE = '__nodec';
+function songDecade(s) { const m = /(\d{4})/.exec(String(s.year || '')); return m ? String(Math.floor(parseInt(m[1], 10) / 10) * 10) : DECADE_NONE; }
+const decadeLabel = d => d === DECADE_NONE ? 'Sem ano' : 'Anos ' + d;
+const F0 = () => ({ show: 'all', langs: [], decades: [], origin: '', voice: '', vtype: '', link: '', minRating: 0, tags: [] });
+function filterCount(f) { return (f.show !== 'all' ? 1 : 0) + f.langs.length + f.decades.length + (f.origin ? 1 : 0) + (f.voice ? 1 : 0) + (f.vtype ? 1 : 0) + (f.link ? 1 : 0) + (f.minRating ? 1 : 0) + f.tags.length; }
 function matchSong(s, q, f) {
   if (q) {
     const toks = norm(q).split(/\s+/).filter(Boolean);
@@ -434,6 +438,7 @@ function matchSong(s, q, f) {
   if (f.show === 'fav' && !s.fav) return false;
   if (f.show === 'never' && songSungTotal(s) > 0) return false;
   if (f.langs.length && !f.langs.includes(s.lang || LANG_NONE)) return false;
+  if (f.decades.length && !f.decades.includes(songDecade(s))) return false;
   if (f.origin && norm(s.origin) !== norm(f.origin)) return false;
   const vs = X.vers[s.id] || [];
   if (f.voice || f.vtype || f.link || f.minRating || f.tags.length) {
@@ -1867,6 +1872,7 @@ SHEETS.filters = t => {
   const sec = (title, inner) => `<div style="margin-bottom:14px"><div class="lbl" style="margin:0 0 6px">${title}</div>${inner}</div>`;
   const chips = (field, opts, label) => `<div class="chips">${opts.map(o => chipB(esc(label ? label(o) : o), 'fSet', f[field] === o, { f: field, v: o })).join('')}</div>`;
   const langs = langList(); if (langEmptyOn() || f.langs.includes(LANG_NONE)) langs.push(LANG_NONE);
+  const decs = uniq(D.songs.map(songDecade)).sort((a, b) => (a === DECADE_NONE) - (b === DECADE_NONE) || b - a);
   const origins = songValues(s => s.origin).slice(0, 8);
   const voices = uniq(VOICES.concat(allValues(v => [v.voice])));
   const vtypes = uniq(VTYPES.concat(allValues(v => [v.vtype])));
@@ -1877,6 +1883,7 @@ SHEETS.filters = t => {
     <div class="sh-b" style="padding-top:12px">
       ${sec('Mostrar', `<div class="chips">${[['all', 'Todas'], ['fav', '★ Favoritas'], ['never', 'Nunca cantadas']].map(x => chipB(x[1], 'fSet', f.show === x[0], { f: 'show', v: x[0] })).join('')}</div>`)}
       ${sec('Idioma · pode marcar vários', `<div class="chips">${langs.map(o => chipB(esc(o === LANG_NONE ? 'Sem idioma' : o), 'fLang', f.langs.includes(o), { v: o })).join('')}</div>`)}
+      ${decs.length > 1 || (decs[0] && decs[0] !== DECADE_NONE) ? sec('Década · pode marcar várias', `<div class="chips">${decs.map(d => chipB(decadeLabel(d), 'fDecade', f.decades.includes(d), { v: d })).join('')}</div>`) : ''}
       ${origins.length ? sec('Origem', chips('origin', origins)) : ''}
       ${sec('Voz', chips('voice', voices))}
       ${sec('Tipo de vídeo', chips('vtype', vtypes))}
@@ -2167,6 +2174,7 @@ const ACT = {
     langRecs().push({ id: v, updated: now() }); save('settings'); syncSoon(3000); render(); const n = $('#langIn'); if (n) n.focus();
   },
   langDel(d) { if (langCount(d.id)) return; D.settings.langs = langRecs().filter(x => x.id !== d.id); save('settings'); syncSoon(3000); render(); },
+  fDecade(d) { const f = sh().f; f.decades = f.decades.includes(d.v) ? f.decades.filter(x => x !== d.v) : f.decades.concat([d.v]); render(); },
   fTag(d) { const f = sh().f; f.tags = f.tags.includes(d.v) ? f.tags.filter(x => x !== d.v) : f.tags.concat([d.v]); render(); },
   fClear() { sh().f = F0(); render(); },
   fApply() { ui.f = sh().f; ui.limit = 150; ui.sheets.pop(); render(); },
