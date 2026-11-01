@@ -213,7 +213,7 @@ details.box summary::-webkit-details-marker{display:none}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.5.2",APP_BUILD=1793370224,MGR=true;
+const APP_VERSION="1.5.3",APP_BUILD=1793489352,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1474,7 +1474,7 @@ function secSong(d) {
   ${fld('singer', 'Cantor', { jp: true })}${sugBox('singer')}
   ${lbl('Outras grafias do cantor')}
   <div class="field" style="flex-wrap:wrap;gap:6px;padding:6px 10px"><span class="fx wrap g6 ac" id="aliases">${d.aliases.map((a, i) => `<span class="tag">${esc(a)}<button data-act="rmAlias" data-i="${i}" aria-label="Remover ${esc(a)}">${ic('close', 16)}</button></span>`).join('')}</span>
-    <input id="f-aliasIn" data-enter="addAlias" placeholder="+ grafia (Enter)" style="flex:1;min-width:110px;border:0;outline:0;background:transparent;font:500 14px 'Manrope','Noto Sans JP',sans-serif;height:36px"></div>
+    <input id="f-aliasIn" data-enter="addAlias" enterkeyhint="done" autocomplete="off" placeholder="+ grafia (Enter)" style="flex:1;min-width:110px;border:0;outline:0;background:transparent;font:500 14px 'Manrope','Noto Sans JP',sans-serif;height:36px"></div>
   ${lbl('Cover de · código ou texto livre')}<div class="field">${ic('search', 20)}<input id="f-coverOf" data-f="coverOf" value="${esc(d.coverOf)}" placeholder="Ex.: 000001 ou nome da original" autocomplete="off"></div><div id="covres">${coverResults()}</div>
   ${lbl('Idioma')}${chipsPick('lang', LANGS)}
   ${fld('origin', 'Origem · anime, jogo, filme…', { ph: 'Texto livre, ajuda na busca' })}${sugBox('origin')}
@@ -1498,7 +1498,7 @@ function secVer(d) {
   ${lbl('Escrita da letra')}${chipsPick('script', SCRIPTS)}
   ${lbl('Tags')}
   <div class="field" style="flex-wrap:wrap;gap:6px;padding:6px 10px"><span class="fx wrap g6 ac" id="tags">${d.tags.map((a, i) => `<span class="tag">${esc(a)}<button data-act="rmTag" data-i="${i}" aria-label="Remover ${esc(a)}">${ic('close', 16)}</button></span>`).join('')}</span>
-    <input id="f-tagIn" data-enter="addTag" placeholder="+ tag (Enter)" autocapitalize="off" style="flex:1;min-width:110px;border:0;outline:0;background:transparent;font:500 14px 'Manrope','Noto Sans JP',sans-serif;height:36px"></div>${sugBox('tag')}
+    <input id="f-tagIn" data-enter="addTag" enterkeyhint="done" placeholder="+ tag (Enter)" autocapitalize="off" style="flex:1;min-width:110px;border:0;outline:0;background:transparent;font:500 14px 'Manrope','Noto Sans JP',sans-serif;height:36px"></div>${sugBox('tag')}
   ${lbl('Status do link')}<div class="seg">${[['unverified', 'Não verificado'], ['ok', 'Funcionando'], ['broken', 'Quebrado']].map(x => `<button class="${d.link === x[0] ? 'sel' : ''}" data-act="pickLink" data-v="${x[0]}">${x[1]}</button>`).join('')}</div>
   ${lbl('Nota 1–5 · opcional')}<div class="rate">${[1, 2, 3, 4, 5].map(n => `<button class="${d.rating === n ? 'sel' : ''}" data-act="pickRate" data-n="${n}" aria-label="Nota ${n}">${n}</button>`).join('')}</div>
   ${fld('vnote', 'Nota da versão', { ph: 'Ex.: introdução longa' })}`;
@@ -2258,9 +2258,13 @@ document.addEventListener('click', e => {
   const h = ACT[el.dataset.act]; if (!h) return;
   h(el.dataset, el, e);
 });
+document.addEventListener('beforeinput', e => {
+  const t = e.target;
+  if (e.inputType === 'insertLineBreak' && t.dataset && t.dataset.enter) { e.preventDefault(); ACT[t.dataset.enter](t.dataset, t, e); }
+});
 document.addEventListener('keydown', e => {
   const t = e.target;
-  if (e.key === 'Enter' && t.dataset && t.dataset.enter) { e.preventDefault(); ACT[t.dataset.enter](t.dataset, t, e); return; }
+  if ((e.key === 'Enter' || e.keyCode === 13) && t.dataset && t.dataset.enter) { e.preventDefault(); ACT[t.dataset.enter](t.dataset, t, e); return; }
   if (e.key === 'Enter' && t.id === 'jumpIn') { e.preventDefault(); ACT.jumpGo(); return; }
   if (e.key === 'Enter' && t.id === 'nlname') { e.preventDefault(); ACT.doNewList(); return; }
   if ((e.key === 'Enter' || e.key === ' ') && t.getAttribute && t.getAttribute('role') && t.dataset.act && /BUTTON|INPUT|TEXTAREA/.test(t.tagName) === false) { e.preventDefault(); t.click(); }
