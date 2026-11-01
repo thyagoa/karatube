@@ -240,7 +240,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.10.1",APP_BUILD=1793537992,MGR=true;
+const APP_VERSION="1.10.2",APP_BUILD=1793538483,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1664,7 +1664,7 @@ function verFromDraft(d, v) {
 }
 function pendingAlias(d) {
   const a = String(d.aliasIn || '').trim();
-  if (a && !d.aliases.map(norm).includes(norm(a)) && norm(a) !== norm(d.singer)) d.aliases.push(a);
+  if (a && !d.aliases.includes(a) && a !== String(d.singer || '').trim()) d.aliases.push(a);
   d.aliasIn = '';
 }
 function saveDraft() {
@@ -2313,7 +2313,7 @@ const ACT = {
   pickRate(d) { const n = +d.n; ui.draft.rating = ui.draft.rating === n ? 0 : n; render(); },
   qIcon(d) { D.settings.qIcon = d.v; save('settings'); render(); },
   clearQ() { ui.query = ''; ui.limit = 150; const q = $('#q'); if (q) { q.value = ''; q.focus(); } const c = $('.qclear'); if (c) c.hidden = true; updateList(); },
-  addAlias() { const e = $('#f-aliasIn'); const v = e && e.value.trim(); if (!v) return; const x = ui.draft; x.aliasIn = ''; if (!x.aliases.map(norm).includes(norm(v)) && norm(v) !== norm(x.singer)) x.aliases.push(v); render(); const n = $('#f-aliasIn'); if (n) n.focus(); },
+  addAlias() { const e = $('#f-aliasIn'); const v = e && e.value.trim(); if (!v) return; const x = ui.draft; x.aliasIn = ''; if (v === (x.singer || '').trim() || x.aliases.includes(v)) toast('Essa grafia já está na lista.'); else x.aliases.push(v); render(); const n = $('#f-aliasIn'); if (n) n.focus(); },
   rmAlias(d) { ui.draft.aliases.splice(+d.i, 1); render(); },
   addTag() { const e = $('#f-tagIn'); const v = e && e.value.trim(); if (!v) return; const x = ui.draft; x.tagIn = ''; if (!x.tags.includes(v)) x.tags.push(v); render(); const n = $('#f-tagIn'); if (n) n.focus(); },
   rmTag(d) { ui.draft.tags.splice(+d.i, 1); render(); },
