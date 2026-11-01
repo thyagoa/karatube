@@ -210,12 +210,19 @@ details.box summary::-webkit-details-marker{display:none}
 .dim{opacity:.55}
 .hidden{display:none!important}
 
+html{overscroll-behavior:none}
+.scroll,.sheet{overscroll-behavior-y:contain}
+.sungcnt{font-size:11px;font-weight:700;color:var(--muted);line-height:1}
+.searchbox input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;display:none}
+.qclear{flex:none;width:32px;height:32px;color:var(--muted)}
+.qclear[hidden]{display:none}
+
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.5.3",APP_BUILD=1793489352,MGR=false;
+const APP_VERSION="1.6.0",APP_BUILD=1793502416,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1234,7 +1241,7 @@ function songRow(s) {
   const cov = s.coverOf ? coverText(s) : '';
   const meta = [cov, s.origin, s.year, vs.length + (vs.length === 1 ? ' versão' : ' versões')].filter(Boolean).slice(0, cov ? 2 : 3).join(' · ');
   return `<div class="srow ${ui.wide && ui.songSel === s.id ? 'sel' : ''}" role="button" tabindex="0" data-act="openSong" data-id="${s.id}">
-    ${songThumb(s, v, 64, 28)}
+    <div class="col ac" style="flex:none;gap:4px">${songThumb(s, v, 64, 28)}<span class="sungcnt" title="Vezes cantada (todas as versões)">♪×${vs.reduce((n, x) => n + (x.sung || 0), 0)}</span></div>
     <div class="fx1"><div class="t ell jp">${esc(s.title)}</div>${s.roman ? `<div class="r ell">${esc(s.roman)}</div>` : ''}
       <div class="ell" style="font-size:13px;margin-top:2px">${esc(singersStr(s))}</div>
       <div class="fx ac g8" style="margin-top:6px"><span class="codepill">${s.id}</span><span class="r ell" style="font-size:12px">${meta}</span></div></div>
@@ -1270,7 +1277,7 @@ function catalogList() {
     chipB('Nunca cantadas', 'qf', ui.f.show === 'never', { v: 'never' })
   ].concat(topTags.map(t => chipB(esc(t), 'qtag', ui.f.tags.includes(t), { v: t })));
   return `<div class="hdr"><div class="logo">${logo(26)}</div><h1>KaraTube</h1>${btn('Nº', 'jump', { icon: 'hash', cls: 'mono', aria: 'Ir direto ao número da música' })}</div>
-  <div class="pad" style="padding-bottom:8px"><label class="searchbox">${ic('search', 20)}<input id="q" type="search" value="${esc(ui.query)}" placeholder="Título, cantor, letra, origem…" autocomplete="off" enterkeyhint="search" aria-label="Buscar"></label></div>
+  <div class="pad" style="padding-bottom:8px"><label class="searchbox">${ic('search', 20)}<input id="q" type="search" value="${esc(ui.query)}" placeholder="Título, cantor, letra, origem…" autocomplete="off" enterkeyhint="search" aria-label="Buscar"><button class="ib qclear" data-act="clearQ" aria-label="Limpar busca" ${ui.query ? '' : 'hidden'}>${ic('close', 20)}</button></label></div>
   ${backupBanner()}
   <div class="chiprow">${chips.join('')}</div>
   <div class="sub"><span id="cnt">${res.length}${res.length === 1 ? ' música' : ' músicas'}</span><button data-act="sortSheet">Ordenar: ${sortLabel()}${ui.dir === 'desc' ? ' ↓' : ''}</button></div>
@@ -2188,6 +2195,7 @@ const ACT = {
   pick(d) { const x = ui.draft; x[d.f] = x[d.f] === d.v ? '' : d.v; render(); },
   pickLink(d) { ui.draft.link = d.v; render(); },
   pickRate(d) { const n = +d.n; ui.draft.rating = ui.draft.rating === n ? 0 : n; render(); },
+  clearQ() { ui.query = ''; ui.limit = 150; const q = $('#q'); if (q) { q.value = ''; q.focus(); } const c = $('.qclear'); if (c) c.hidden = true; updateList(); },
   addAlias() { const e = $('#f-aliasIn'); const v = e && e.value.trim(); if (!v) return; const x = ui.draft; if (!x.aliases.map(norm).includes(norm(v)) && norm(v) !== norm(x.singer)) x.aliases.push(v); render(); const n = $('#f-aliasIn'); if (n) n.focus(); },
   rmAlias(d) { ui.draft.aliases.splice(+d.i, 1); render(); },
   addTag() { const e = $('#f-tagIn'); const v = e && e.value.trim(); if (!v) return; const x = ui.draft; if (!x.tags.includes(v)) x.tags.push(v); render(); const n = $('#f-tagIn'); if (n) n.focus(); },
@@ -2274,7 +2282,7 @@ document.addEventListener('keydown', e => {
 let urlTimer = null;
 document.addEventListener('input', e => {
   const t = e.target;
-  if (t.id === 'q') { ui.query = t.value; ui.limit = 150; updateList(); return; }
+  if (t.id === 'q') { ui.query = t.value; ui.limit = 150; updateList(); const c = $('.qclear'); if (c) c.hidden = !t.value; return; }
   if (t.id === 'jumpIn') { const s = sh(); s.v = t.value; const m = jumpMatch(t.value); $('#jumpres').innerHTML = jumpResHtml(m); const b = $('.sh-f .btn.primary'); if (b) b.disabled = !m; return; }
   if (t.id === 'onq') { sh().q = t.value; return; }
   if (t.id === 'nlname') { sh().name = t.value; return; }
