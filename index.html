@@ -242,7 +242,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.10.2",APP_BUILD=1793538483,MGR=false;
+const APP_VERSION="1.11.0",APP_BUILD=1793567819,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -431,11 +431,24 @@ function songDecade(s) { const m = /(\d{4})/.exec(String(s.year || '')); return 
 const decadeLabel = d => d === DECADE_NONE ? 'Sem ano' : 'Anos ' + d;
 const F0 = () => ({ show: 'all', langs: [], decades: [], origin: '', voice: '', vtype: '', link: '', minRating: 0, tags: [] });
 function filterCount(f) { return (f.show !== 'all' ? 1 : 0) + f.langs.length + f.decades.length + (f.origin ? 1 : 0) + (f.voice ? 1 : 0) + (f.vtype ? 1 : 0) + (f.link ? 1 : 0) + (f.minRating ? 1 : 0) + f.tags.length; }
+// busca: o que vem entre aspas ("Hey Ho") é um termo exato (palavras inteiras, nessa ordem); o resto são palavras soltas
+let _pq = { q: null };
+function parseQuery(q) {
+  if (_pq.q === q) return _pq;
+  const toks = [], phrases = []; const rest = String(q).replace(/[“”„«»]/g, '"').replace(/"([^"]*)("|$)/g, (m, ph) => {
+    const t = norm(ph).trim().replace(/\s+/g, ' ');
+    if (t) phrases.push(new RegExp('(^|[^\\p{L}\\p{N}])' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+') + '(?![\\p{L}\\p{N}])', 'u'));
+    return ' ';
+  });
+  norm(rest).split(/\s+/).filter(Boolean).forEach(t => toks.push(t));
+  _pq = { q, toks, phrases }; return _pq;
+}
 function matchSong(s, q, f) {
   if (q) {
-    const toks = norm(q).split(/\s+/).filter(Boolean);
+    const pq = parseQuery(q);
     const txt = X.text[s.id] || '';
-    for (const t of toks) { if (!txt.includes(t)) return false; }
+    for (const t of pq.toks) { if (!txt.includes(t)) return false; }
+    for (const re of pq.phrases) { if (!re.test(txt)) return false; }
   }
   if (f.show === 'fav' && !s.fav) return false;
   if (f.show === 'never' && songSungTotal(s) > 0) return false;
