@@ -203,8 +203,8 @@ details.box summary::-webkit-details-marker{display:none}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 .wide .cols2{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
-.wide .vgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.wide .vgrid .vcard{margin:0}
+.wide .vgrid{display:block}
+.wide .vgrid .vcard{margin:0 0 10px}
 .dim{opacity:.55}
 .hidden{display:none!important}
 
@@ -234,13 +234,25 @@ body{position:fixed;inset:0;width:100%}
 .qopt{display:flex;align-items:center;gap:12px;padding:10px 12px;margin-top:8px;border-radius:14px;border:1px solid var(--line);background:var(--surface);width:100%;color:var(--text);font:700 14px 'Manrope',sans-serif;text-align:left}
 .qopt.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .qopt .qbtn{width:44px;height:44px;border-radius:14px;flex:none}
+.vcard{padding:0;overflow:hidden;border-radius:20px;min-width:0}
+.vtop{display:flex;align-items:center;gap:14px;padding:14px 14px 12px}
+.vinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.vlink{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--muted)}
+.vstars{margin-left:auto}
+.vchan{font-size:13px}
+.vfoot{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--bg);border-top:1px solid var(--line)}
+.vcode{flex:none;font:700 12px 'JetBrains Mono',ui-monospace,monospace;background:var(--surface2);padding:3px 8px;border-radius:8px}
+.vmeta{flex:1;min-width:0;font-size:12px;color:var(--muted)}
+.vact{display:flex;align-items:center;gap:8px;padding:12px 14px 14px}
+.vact .vgo{flex:1;min-width:0;height:48px;border-radius:14px;padding:0 12px;white-space:nowrap}
+.vact .vb{width:48px;height:48px;border-radius:14px}
 
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.11.0",APP_BUILD=1793567819,MGR=true;
+const APP_VERSION="1.12.1",APP_BUILD=1793571757,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1387,21 +1399,21 @@ function catalogEmpty() {
 
 /* ---------- detalhe da música ---------- */
 function vcard(v) {
-  const s = songOf(v); const meta = [];
-  meta.push(v.sung ? `Cantada ${v.sung}×` : 'Nunca cantada'); if (v.lastSung) meta.push('última em ' + fmtDay(v.lastSung));
+  const s = songOf(v);
+  const meta = [v.sung ? '♪×' + v.sung : '♪×0']; if (v.lastSung) meta.push('última em ' + fmtDay(v.lastSung)); if (v.vnote) meta.push(esc(v.vnote));
   const mini = [v.key && 'Tom ' + v.key, v.voice, v.vtype, v.script].filter(Boolean).concat(v.tags || []);
   return `<div class="vcard">
-    <div class="fx g12">${vthumb(s, v, 96, 54)}<div class="fx1">
-      <div class="fx ac g8"><b class="mono" style="font-size:13px">${v.code}</b><span class="dot ${v.link || 'unverified'}"></span><span class="muted" style="font-size:12px">${linkLabel(v.link)}</span></div>
-      <div class="muted ell" style="font-size:12px;margin-top:2px">${esc(v.channel || v.ytTitle || 'Sem canal')}</div>
-      <div class="stars" style="gap:0;margin-top:2px">${v.rating ? stars(v.rating, 13) : '<span class="muted" style="font-size:11px">sem nota</span>'}</div></div></div>
-    ${mini.length ? `<div class="chips" style="gap:6px;margin-top:10px">${mini.map(m => `<span class="mini">${esc(m)}</span>`).join('')}</div>` : ''}
-    <div class="muted" style="font-size:12px;margin-top:8px">${meta.join(' · ')}${v.vnote ? ' · ' + esc(v.vnote) : ''}</div>
-    <div class="fx g8" style="margin-top:10px">
-      ${btn('Abrir no YouTube', 'openYT', { cls: 'primary grow', icon: 'play', d: { code: v.code } })}
-      ${ib('tv', 'tv', 'Enviar para a TV', { cls: 'bd', s: 22, d: { code: v.code } })}
-      ${ib('qadd', 'addVQ', 'Adicionar à fila', { cls: 'bd acc', d: { code: v.code } })}
-      ${ib('more', 'verMenu', 'Mais ações da versão', { cls: 'bd', d: { code: v.code } })}
+    <div class="vtop">${vthumb(s, v, 120, 68, 10)}<div class="vinfo">
+      <div class="fx ac g8"><span class="vlink"><span class="dot ${v.link || 'unverified'}"></span>${linkLabel(v.link)}</span><span class="stars vstars" style="gap:0">${v.rating ? stars(v.rating, 13) : '<span class="muted" style="font-size:11px;font-weight:500">sem nota</span>'}</span></div>
+      <div class="vchan ell">${esc(v.channel || v.ytTitle || 'Sem canal')}</div>
+      ${mini.length ? `<div class="chips" style="gap:6px">${mini.map(m => `<span class="mini">${esc(m)}</span>`).join('')}</div>` : ''}
+    </div></div>
+    <div class="vfoot"><span class="vcode">${v.code}</span><span class="vmeta ell">${meta.join(' · ')}</span></div>
+    <div class="vact">
+      ${btn('Abrir no YouTube', 'openYT', { cls: 'primary grow vgo', icon: 'play', d: { code: v.code } })}
+      ${ib('tv', 'tv', 'Enviar para a TV', { cls: 'bd vb', s: 22, d: { code: v.code } })}
+      ${ib('qadd', 'addVQ', 'Adicionar à fila', { cls: 'bd acc vb', d: { code: v.code } })}
+      ${ib('more', 'verMenu', 'Mais ações da versão', { cls: 'bd vb', d: { code: v.code } })}
     </div></div>`;
 }
 function viewSong() {
@@ -2218,7 +2230,15 @@ const ACT = {
     const c = d && d.code ? X.ver[d.code] : qCurrent(); if (!c) return;
     const vid = parseVid(c.url); if (!vid) { toast('Esta versão não tem link válido.'); return; }
     toast('Enviando para a TV…', { ms: 2500 });
-    try { await TV.send(vid); toast('Enviado para ' + (D.settings.tvScreen.name || 'a TV') + '.'); }
+    try {
+      await TV.send(vid);
+      const name = D.settings.tvScreen.name || 'a TV';
+      if (!(d && d.code) || (D.queue[0] && D.queue[0].code === d.code)) { toast('Enviado para ' + name + '.'); return; }
+      // enviada da lista de versões: vira a música da vez; a que estava na vez passa a ser a próxima
+      const before = D.queue.slice(); const had = D.queue.find(e => e.code === d.code);
+      D.queue = D.queue.filter(e => e.code !== d.code); D.queue.unshift(had || { q: uid(), code: d.code }); save('queue'); render();
+      toast('Enviado para ' + name + ' e é a música da vez.', { action: 'Desfazer', onAction: () => { D.queue = before; save('queue'); render(); } });
+    }
     catch (e) { toast(tvErrMsg(e), { ms: 5000 }); render(); }
   },
   async tvPair() {
@@ -2515,18 +2535,19 @@ function songRow(s) {
 }
 function vcard(v) {
   const s = songOf(v);
+  const meta = ['♪×' + (v.sung || 0)]; if (v.lastSung) meta.push('última em ' + fmtDay(v.lastSung)); if (v.vnote) meta.push(esc(v.vnote));
   const mini = [v.key && 'Tom ' + v.key, v.voice, v.vtype, v.script].filter(Boolean).concat(v.tags || []);
   return `<div class="vcard">
-    <div class="fx g12">${vthumb(s, v, 96, 54)}<div class="fx1">
-      <div class="fx ac g8"><b class="mono" style="font-size:13px">${v.code}</b><span class="dot ${v.link || 'unverified'}"></span><span class="muted" style="font-size:12px">${linkLabel(v.link)}</span></div>
-      <div class="muted ell" style="font-size:12px;margin-top:2px">${esc(v.channel || v.ytTitle || 'Sem canal')}</div>
-      <div class="stars" style="gap:0;margin-top:2px">${v.rating ? stars(v.rating, 13) : '<span class="muted" style="font-size:11px">sem nota</span>'}</div></div></div>
-    ${mini.length ? `<div class="chips" style="gap:6px;margin-top:10px">${mini.map(m => `<span class="mini">${esc(m)}</span>`).join('')}</div>` : ''}
-    ${v.vnote ? `<div class="muted" style="font-size:12px;margin-top:8px">${esc(v.vnote)}</div>` : ''}
-    <div class="fx g8" style="margin-top:10px">
-      ${btn('Abrir no YouTube', 'openYT', { cls: 'grow', icon: 'play', d: { code: v.code } })}
+    <div class="vtop">${vthumb(s, v, 120, 68, 10)}<div class="vinfo">
+      <div class="fx ac g8"><span class="vlink"><span class="dot ${v.link || 'unverified'}"></span>${linkLabel(v.link)}</span><span class="stars vstars" style="gap:0">${v.rating ? stars(v.rating, 13) : '<span class="muted" style="font-size:11px;font-weight:500">sem nota</span>'}</span></div>
+      <div class="vchan ell">${esc(v.channel || v.ytTitle || 'Sem canal')}</div>
+      ${mini.length ? `<div class="chips" style="gap:6px">${mini.map(m => `<span class="mini">${esc(m)}</span>`).join('')}</div>` : ''}
+    </div></div>
+    <div class="vfoot"><span class="vcode">${v.code}</span><span class="vmeta ell">${meta.join(' · ')}</span></div>
+    <div class="vact">
+      ${btn('Abrir no YouTube', 'openYT', { cls: 'grow vgo', icon: 'play', d: { code: v.code } })}
       ${btn('Editar', 'editVer', { cls: 'primary', icon: 'edit', d: { code: v.code } })}
-      ${ib('more', 'verMenu', 'Mais ações da versão', { cls: 'bd', d: { code: v.code } })}
+      ${ib('more', 'verMenu', 'Mais ações da versão', { cls: 'bd vb', d: { code: v.code } })}
     </div></div>`;
 }
 function viewSong() {
