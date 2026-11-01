@@ -240,7 +240,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.10.0",APP_BUILD=1793508837,MGR=true;
+const APP_VERSION="1.10.1",APP_BUILD=1793537992,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1574,7 +1574,7 @@ function secSong(d) {
   ${fld('singer', 'Cantor', { jp: true })}${sugBox('singer')}
   ${lbl('Outras grafias do cantor')}
   <div class="field" style="flex-wrap:wrap;gap:6px;padding:6px 10px"><span class="fx wrap g6 ac" id="aliases">${d.aliases.map((a, i) => `<span class="tag">${esc(a)}<button data-act="rmAlias" data-i="${i}" aria-label="Remover ${esc(a)}">${ic('close', 16)}</button></span>`).join('')}</span>
-    <input id="f-aliasIn" data-enter="addAlias" enterkeyhint="done" autocomplete="off" placeholder="+ grafia (Enter)" style="flex:1;min-width:110px;border:0;outline:0;background:transparent;font:500 14px 'Manrope','Noto Sans JP',sans-serif;height:36px"></div>
+    <input id="f-aliasIn" data-enter="addAlias" enterkeyhint="enter" value="${esc(d.aliasIn || '')}" autocomplete="off" placeholder="+ grafia (Enter)" style="flex:1;min-width:110px;border:0;outline:0;background:transparent;font:500 14px 'Manrope','Noto Sans JP',sans-serif;height:36px"></div>
   ${lbl('Cover de · código ou texto livre')}<div class="field">${ic('search', 20)}<input id="f-coverOf" data-f="coverOf" value="${esc(d.coverOf)}" placeholder="Ex.: 000001 ou nome da original" autocomplete="off"></div><div id="covres">${coverResults()}</div>
   ${lbl('Idioma')}${chipsPick('lang', langList())}
   ${fld('origin', 'Origem · anime, jogo, filme…', { ph: 'Texto livre, ajuda na busca' })}${sugBox('origin')}
@@ -1598,7 +1598,7 @@ function secVer(d) {
   ${lbl('Escrita da letra')}${chipsPick('script', SCRIPTS)}
   ${lbl('Tags')}
   <div class="field" style="flex-wrap:wrap;gap:6px;padding:6px 10px"><span class="fx wrap g6 ac" id="tags">${d.tags.map((a, i) => `<span class="tag">${esc(a)}<button data-act="rmTag" data-i="${i}" aria-label="Remover ${esc(a)}">${ic('close', 16)}</button></span>`).join('')}</span>
-    <input id="f-tagIn" data-enter="addTag" enterkeyhint="done" placeholder="+ tag (Enter)" autocapitalize="off" style="flex:1;min-width:110px;border:0;outline:0;background:transparent;font:500 14px 'Manrope','Noto Sans JP',sans-serif;height:36px"></div>${sugBox('tag')}
+    <input id="f-tagIn" data-enter="addTag" enterkeyhint="enter" value="${esc(d.tagIn || '')}" placeholder="+ tag (Enter)" autocapitalize="off" style="flex:1;min-width:110px;border:0;outline:0;background:transparent;font:500 14px 'Manrope','Noto Sans JP',sans-serif;height:36px"></div>${sugBox('tag')}
   ${lbl('Status do link')}<div class="seg">${[['unverified', 'Não verificado'], ['ok', 'Funcionando'], ['broken', 'Quebrado']].map(x => `<button class="${d.link === x[0] ? 'sel' : ''}" data-act="pickLink" data-v="${x[0]}">${x[1]}</button>`).join('')}</div>
   ${lbl('Nota 1–5 · opcional')}<div class="rate">${[1, 2, 3, 4, 5].map(n => `<button class="${d.rating === n ? 'sel' : ''}" data-act="pickRate" data-n="${n}" aria-label="Nota ${n}">${n}</button>`).join('')}</div>
   ${fld('vnote', 'Nota da versão', { ph: 'Ex.: introdução longa' })}`;
@@ -1649,6 +1649,7 @@ function viewForm() {
 /* ---------- gravar o rascunho ---------- */
 function cleanLyric(t) { return String(t || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean).slice(0, 5).join('\n'); }
 function songFromDraft(d, base) {
+  pendingAlias(d);
   const s = base || { id: '', created: now(), fav: false };
   s.title = d.title.trim(); s.roman = d.roman.trim(); s.singers = [d.singer.trim()].concat(d.aliases).filter(Boolean);
   s.coverOf = d.coverOf.trim(); s.lang = d.lang; s.origin = d.origin.trim(); s.year = String(d.year || '').trim();
@@ -1661,8 +1662,14 @@ function verFromDraft(d, v) {
   v.link = d.link; v.rating = d.rating; v.vnote = d.vnote.trim(); v.updated = now();
   return v;
 }
+function pendingAlias(d) {
+  const a = String(d.aliasIn || '').trim();
+  if (a && !d.aliases.map(norm).includes(norm(a)) && norm(a) !== norm(d.singer)) d.aliases.push(a);
+  d.aliasIn = '';
+}
 function saveDraft() {
   const d = ui.draft; if (!d) return;
+  pendingAlias(d); { const t = String(d.tagIn || '').trim(); if (t && !d.tags.includes(t)) d.tags.push(t); d.tagIn = ''; }
   const needSong = d.mode === 'new' || (d.mode === 'edit' && d.scope === 'song');
   const needVer = d.mode !== 'edit' || d.scope === 'version';
   if (d.mode === 'version' && !(d.songCode && X.song[d.songCode])) return toast('Escolha a música desta versão.');
@@ -2306,9 +2313,9 @@ const ACT = {
   pickRate(d) { const n = +d.n; ui.draft.rating = ui.draft.rating === n ? 0 : n; render(); },
   qIcon(d) { D.settings.qIcon = d.v; save('settings'); render(); },
   clearQ() { ui.query = ''; ui.limit = 150; const q = $('#q'); if (q) { q.value = ''; q.focus(); } const c = $('.qclear'); if (c) c.hidden = true; updateList(); },
-  addAlias() { const e = $('#f-aliasIn'); const v = e && e.value.trim(); if (!v) return; const x = ui.draft; if (!x.aliases.map(norm).includes(norm(v)) && norm(v) !== norm(x.singer)) x.aliases.push(v); render(); const n = $('#f-aliasIn'); if (n) n.focus(); },
+  addAlias() { const e = $('#f-aliasIn'); const v = e && e.value.trim(); if (!v) return; const x = ui.draft; x.aliasIn = ''; if (!x.aliases.map(norm).includes(norm(v)) && norm(v) !== norm(x.singer)) x.aliases.push(v); render(); const n = $('#f-aliasIn'); if (n) n.focus(); },
   rmAlias(d) { ui.draft.aliases.splice(+d.i, 1); render(); },
-  addTag() { const e = $('#f-tagIn'); const v = e && e.value.trim(); if (!v) return; const x = ui.draft; if (!x.tags.includes(v)) x.tags.push(v); render(); const n = $('#f-tagIn'); if (n) n.focus(); },
+  addTag() { const e = $('#f-tagIn'); const v = e && e.value.trim(); if (!v) return; const x = ui.draft; x.tagIn = ''; if (!x.tags.includes(v)) x.tags.push(v); render(); const n = $('#f-tagIn'); if (n) n.focus(); },
   rmTag(d) { ui.draft.tags.splice(+d.i, 1); render(); },
   sugFill(d) {
     const x = ui.draft;
@@ -2380,7 +2387,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('beforeinput', e => {
   const t = e.target;
-  if (e.inputType === 'insertLineBreak' && t.dataset && t.dataset.enter) { e.preventDefault(); ACT[t.dataset.enter](t.dataset, t, e); }
+  if (/^insert(LineBreak|Paragraph)$/.test(e.inputType) && t.dataset && t.dataset.enter) { e.preventDefault(); ACT[t.dataset.enter](t.dataset, t, e); }
 });
 document.addEventListener('keydown', e => {
   const t = e.target;
@@ -2397,7 +2404,12 @@ document.addEventListener('input', e => {
   if (t.id === 'onq') { sh().q = t.value; return; }
   if (t.id === 'nlname') { sh().name = t.value; return; }
   if (t.id === 'lpq') { const s = sh(); s.q = t.value; const l = D.lists.find(x => x.id === s.id); const q = norm(s.q); const have = new Set(l.items.map(c => (X.ver[c] || {}).song)); $('#lplist').innerHTML = lpRows(sortSongs(D.songs.filter(x => !q || (X.text[x.id] || '').includes(q)), 'code', 'asc').slice(0, 120), have, s); return; }
-  if (t.id === 'f-tagIn') { updSug('tag'); return; }
+  if (t.id === 'f-aliasIn' && ui.draft) {
+    ui.draft.aliasIn = t.value;
+    if (/insertParagraph|insertLineBreak/.test(e.inputType || '') || /[\r\n]/.test(t.value)) { t.value = t.value.replace(/[\r\n]+/g, ''); ui.draft.aliasIn = t.value; ACT.addAlias(); }
+    return;
+  }
+  if (t.id === 'f-tagIn') { if (ui.draft) ui.draft.tagIn = t.value; updSug('tag'); return; }
   const f = t.dataset && t.dataset.f;
   if (f && ui.draft) {
     ui.draft[f] = t.value;
