@@ -214,13 +214,16 @@ html{overscroll-behavior:none}
 .searchbox input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;display:none}
 .qclear{flex:none;width:32px;height:32px;color:var(--muted)}
 .qclear[hidden]{display:none}
+html,body{overflow:hidden}
+body{position:fixed;inset:0;width:100%}
+#app,.shell{height:100%}
 
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.6.0",APP_BUILD=1793502416,MGR=true;
+const APP_VERSION="1.8.0",APP_BUILD=1793506070,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -395,8 +398,8 @@ const tint = code => 1 + (parseInt(String(code).slice(0, 6), 10) % 6);
 const decadeOf = y => { y = parseInt(y, 10); if (!y || y < 1900) return ''; const d = Math.floor(y / 10) * 10; return 'anos ' + (d >= 2000 ? d : String(d).slice(2)) + (d >= 2000 ? '' : ''); };
 
 /* ---------------- busca, filtro, ordenação ---------------- */
-const F0 = () => ({ show: 'all', lang: '', origin: '', voice: '', vtype: '', link: '', minRating: 0, tags: [] });
-function filterCount(f) { return (f.show !== 'all' ? 1 : 0) + (f.lang ? 1 : 0) + (f.origin ? 1 : 0) + (f.voice ? 1 : 0) + (f.vtype ? 1 : 0) + (f.link ? 1 : 0) + (f.minRating ? 1 : 0) + f.tags.length; }
+const F0 = () => ({ show: 'all', langs: [], origin: '', voice: '', vtype: '', link: '', minRating: 0, tags: [] });
+function filterCount(f) { return (f.show !== 'all' ? 1 : 0) + f.langs.length + (f.origin ? 1 : 0) + (f.voice ? 1 : 0) + (f.vtype ? 1 : 0) + (f.link ? 1 : 0) + (f.minRating ? 1 : 0) + f.tags.length; }
 function matchSong(s, q, f) {
   if (q) {
     const toks = norm(q).split(/\s+/).filter(Boolean);
@@ -405,7 +408,7 @@ function matchSong(s, q, f) {
   }
   if (f.show === 'fav' && !s.fav) return false;
   if (f.show === 'never' && songSungTotal(s) > 0) return false;
-  if (f.lang && s.lang !== f.lang) return false;
+  if (f.langs.length && !f.langs.includes(s.lang || LANG_NONE)) return false;
   if (f.origin && norm(s.origin) !== norm(f.origin)) return false;
   const vs = X.vers[s.id] || [];
   if (f.voice || f.vtype || f.link || f.minRating || f.tags.length) {
@@ -590,15 +593,21 @@ async function applyUpdate() {
    Cada base devolve o melhor resultado como lista de campos:
    {key: title|roman|singer|alias|origin|year|lyric, label, value}
    ===================================================================== */
+// about: onde serve · gives: o que traz para a música
 const BASES = [
-  { id: 'musicbrainz', name: 'MusicBrainz', about: 'Música em geral · artista, grafias, ano' },
-  { id: 'animethemes', name: 'AnimeThemes', about: 'Só anime · aberturas e encerramentos, ano' },
-  { id: 'anilist', name: 'AniList', about: 'Só anime · nomes em romaji, inglês e japonês' },
-  { id: 'jikan', name: 'Jikan (MyAnimeList)', about: 'Só anime · títulos e ano do anime' },
-  { id: 'vocadb', name: 'VocaDB', about: 'Vocaloid e afins · nomes em 3 idiomas' },
-  { id: 'lrclib', name: 'LRCLIB', about: 'Só letras · cobertura irregular em japonês' },
-  { id: 'itunes', name: 'iTunes (Apple)', about: 'Catálogo comercial · ano e grafia do artista' }
+  { id: 'musicbrainz', name: 'MusicBrainz', about: 'Música em geral · artista, grafias, ano', gives: 'Título, cantor (grafias), ano' },
+  { id: 'caa', name: 'Cover Art Archive', about: 'Música em geral · capa de álbum em boa resolução', gives: 'Capa' },
+  { id: 'deezer', name: 'Deezer', about: 'Catálogo comercial, forte em música brasileira e ocidental', gives: 'Título, cantor, ano, capa' },
+  { id: 'itunes', name: 'iTunes (Apple)', about: 'Catálogo comercial · ano e grafia do artista', gives: 'Título, cantor, ano, capa' },
+  { id: 'wikidata', name: 'Wikipédia / Wikidata', about: 'Músicas conhecidas · de qual filme, álbum ou série vem', gives: 'Origem (filme, álbum, série), ano, cantor' },
+  { id: 'lrclib', name: 'LRCLIB', about: 'Só letras · cobertura irregular em japonês', gives: 'Letra inicial' },
+  { id: 'animethemes', name: 'AnimeThemes', about: 'Só anime · aberturas e encerramentos', gives: 'Título, cantor, origem (anime), ano, pôster' },
+  { id: 'anilist', name: 'AniList', about: 'Só anime · nomes em romaji, inglês e japonês', gives: 'Origem (anime), ano, pôster' },
+  { id: 'jikan', name: 'Jikan (MyAnimeList)', about: 'Só anime · títulos e ano do anime', gives: 'Origem (anime), ano, pôster' },
+  { id: 'vocadb', name: 'VocaDB', about: 'Vocaloid e afins · nomes em 3 idiomas', gives: 'Título (japonês e romaji), cantor, ano, imagem' }
 ];
+const baseOn = id => !(D.settings.basesOff || []).includes(id);
+const activeBases = () => BASES.filter(b => baseOn(b.id));
 const isLatin = s => !/[^\u0000-ɏ‐-‧\s]/.test(s || '');
 const titleField = (t, labelOrig = 'Título original', labelRoman = 'Título romanizado / traduzido') =>
   isLatin(t) ? { key: 'roman', label: labelRoman, value: t } : { key: 'title', label: labelOrig, value: t };
@@ -628,7 +637,38 @@ const SEARCH = {
     const f = [titleField(r.title)];
     uniq((r['artist-credit'] || []).map(a => a.name)).forEach(n => f.push({ key: 'alias', label: 'Cantor (grafia)', value: n }));
     const y = (r['first-release-date'] || '').slice(0, 4); if (y) f.push({ key: 'year', label: 'Ano do primeiro lançamento', value: y });
-    const rel = (r.releases || []).find(x => x.id); if (rel) f.push({ key: 'art', label: 'Capa do álbum', value: 'https://coverartarchive.org/release/' + rel.id + '/front-500' });
+    return f;
+  },
+  async caa(q) {
+    const j = await mbThrottle(() => fetchJSON('https://musicbrainz.org/ws/2/release?fmt=json&limit=5&query=' + encodeURIComponent(q)));
+    const rel = (j.releases || []).find(x => x.id); if (!rel) return null;
+    return [{ key: 'art', label: 'Capa do álbum' + (rel.title ? ' · ' + rel.title : ''), value: 'https://coverartarchive.org/release/' + rel.id + '/front-500' }];
+  },
+  async deezer(q) {
+    const j = await jsonp('https://api.deezer.com/search?limit=1&output=jsonp&q=' + encodeURIComponent(q));
+    const r = (j.data || [])[0]; if (!r) return null;
+    const f = [titleField(r.title_short || r.title)];
+    if (r.artist && r.artist.name) f.push({ key: 'alias', label: 'Cantor (grafia)', value: r.artist.name });
+    const al = r.album || {};
+    if (al.id) { try { const a = await jsonp('https://api.deezer.com/album/' + al.id + '?output=jsonp'); if (a && a.release_date) f.push({ key: 'year', label: 'Ano', value: a.release_date.slice(0, 4) }); } catch (e) { } }
+    const cv = al.cover_xl || al.cover_big || al.cover_medium; if (cv) f.push({ key: 'art', label: 'Capa do álbum', value: cv });
+    return f;
+  },
+  async wikidata(q) {
+    const W = 'https://www.wikidata.org/w/api.php?format=json&origin=*&';
+    const s = await fetchJSON('https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrlimit=3&prop=pageprops&ppprop=wikibase_item&gsrsearch=' + encodeURIComponent(q + ' song'));
+    const pg = Object.values((s.query || {}).pages || {}).sort((a, b) => a.index - b.index);
+    const id = pg.map(p => (p.pageprops || {}).wikibase_item).find(Boolean); if (!id) return null;
+    const e = (await fetchJSON(W + 'action=wbgetentities&props=claims|descriptions&languages=en&ids=' + id)).entities[id];
+    const cl = e.claims || {}; const val = p => (cl[p] || []).map(x => x.mainsnak && x.mainsnak.datavalue && x.mainsnak.datavalue.value).filter(Boolean);
+    if (!/song|single|track|canç|música/i.test((e.descriptions.en || {}).value || '') && !val('P175').length) return null;
+    const refs = uniq([].concat(val('P175'), val('P361'), val('P1433')).map(v => v.id).filter(Boolean));
+    const lab = refs.length ? (await fetchJSON(W + 'action=wbgetentities&props=labels&languages=pt|en&ids=' + refs.join('|'))).entities : {};
+    const L = v => { const o = v.id && lab[v.id]; const l = o && o.labels && (o.labels.pt || o.labels.en); return l && l.value; };
+    const f = [];
+    const part = val('P361').concat(val('P1433')).map(L).filter(Boolean)[0]; if (part) f.push({ key: 'origin', label: 'Origem (álbum, filme, série)', value: part });
+    const t = (val('P577')[0] || {}).time; const y = t && (/^[+-]?(\d{4})/.exec(t) || [])[1]; if (y) f.push({ key: 'year', label: 'Ano', value: y });
+    uniq(val('P175').map(L).filter(Boolean)).slice(0, 2).forEach(n => f.push({ key: 'alias', label: 'Cantor (grafia)', value: n }));
     return f;
   },
   async animethemes(q) {
@@ -940,8 +980,8 @@ async function ghPut(path, text, sha, msg) {
 const sKey = (k, id) => k + ':' + id;
 function localDeletions() {
   const known = D.sync.known || {}; const tomb = D.sync.tomb;
-  const have = { s: new Set(D.songs.map(x => x.id)), v: new Set(D.versions.map(x => x.code)), l: new Set(D.lists.map(x => x.id)) };
-  ['s', 'v', 'l'].forEach(k => (known[k] || []).forEach(id => { if (!have[k].has(id) && !tomb[sKey(k, id)]) tomb[sKey(k, id)] = now(); }));
+  const have = { s: new Set(D.songs.map(x => x.id)), v: new Set(D.versions.map(x => x.code)), l: new Set(D.lists.map(x => x.id)), g: new Set(langsCustom()) };
+  ['s', 'v', 'l', 'g'].forEach(k => (known[k] || []).forEach(id => { if (!have[k].has(id) && !tomb[sKey(k, id)]) tomb[sKey(k, id)] = now(); }));
 }
 const cmpForm = (k, x) => { if (k !== 's' || !x.art || !x.art.startsWith('data:')) return x; const c = Object.assign({}, x); c.artFile = 'capas/' + c.id + '-' + hashStr(c.art) + '.txt'; delete c.art; return c; };
 function mergeSet(k, local, remote, idf, tomb, stat) {
@@ -967,6 +1007,8 @@ function mergeRemote(rem) {
   const sid = new Set(D.songs.map(s => s.id));
   D.versions = mergeSet('v', D.versions, rem.versions || [], x => x.code, tomb, stat).filter(v => sid.has(v.song));
   D.lists = mergeSet('l', D.lists, rem.lists || [], x => x.id, tomb, stat);
+  D.settings.langs = mergeSet('g', langRecs(), rem.langs || [], x => x.id, tomb, stat);
+  const re = rem.langEmpty; if (re && (re.updated || 0) > (D.settings.langEmptyAt || 0)) { D.settings.langEmpty = re.on; D.settings.langEmptyAt = re.updated; stat.local++; } else if ((D.settings.langEmptyAt || 0) > ((re || {}).updated || 0)) stat.remote++;
   const vc = new Set(D.versions.map(v => v.code)); const hid = new Set(D.history.map(h => h.id));
   (rem.history || []).forEach(h => { if (!hid.has(h.id) && vc.has(h.code)) { D.history.push(h); stat.local++; } });
   const rmap = new Map((rem.history || []).map(h => [h.id, h]));
@@ -979,7 +1021,7 @@ function serialize() {
   return JSON.stringify({
     app: 'karatube', v: 1, at: now(),
     songs: D.songs.map(s => { const c = Object.assign({}, s); if (c.art && c.art.startsWith('data:')) { c.artFile = 'capas/' + c.id + '-' + hashStr(c.art) + '.txt'; delete c.art; } return c; }),
-    versions: D.versions, lists: D.lists, history: D.history, tomb: D.sync.tomb
+    versions: D.versions, lists: D.lists, langs: langRecs(), langEmpty: { on: langEmptyOn(), updated: D.settings.langEmptyAt || 0 }, history: D.history, tomb: D.sync.tomb
   });
 }
 // Cadastro dos aparelhos (dispositivos.json): cada um tem id, apelido e faixa de códigos.
@@ -1032,7 +1074,7 @@ async function renumberAll() {
   await ghSyncNow(false);
   toast(ghCfg().err ? 'Reorganizado aqui, mas a sincronização falhou. Tente "Sincronizar agora".' : 'Códigos reorganizados e sincronizados.', { ms: 4000 }); render();
 }
-function markKnown() { D.sync.known = { s: D.songs.map(x => x.id), v: D.versions.map(x => x.code), l: D.lists.map(x => x.id) }; }
+function markKnown() { D.sync.known = { s: D.songs.map(x => x.id), v: D.versions.map(x => x.code), l: D.lists.map(x => x.id), g: langsCustom() }; }
 
 async function ghSyncNow(manual) {
   if (!ghOn()) return; if (SYNC.busy) return;
@@ -1390,6 +1432,17 @@ const VOICES = ['Original', 'Feminina', 'Masculina', 'Dueto'];
 const VTYPES = ['Karaokê com guia', 'Só instrumental', 'Letra na tela', 'Clipe', 'Ao vivo'];
 const SCRIPTS = ['Kanji + furigana', 'Kanji', 'Romaji', 'Hiragana', 'Português'];
 const LANGS = ['Japonês', 'Português', 'Inglês', 'Coreano', 'Outro'];
+const LANG_NONE = '__none';
+// idiomas criados: D.settings.langs = [{id: nome, updated}] (sincronizados); langsExtra era a lista antiga, só de nomes
+function langRecs() {
+  const s = D.settings;
+  if (s.langsExtra) { s.langs = (s.langs || []).concat(s.langsExtra.filter(n => !(s.langs || []).some(x => x.id === n)).map(n => ({ id: n, updated: now() }))); delete s.langsExtra; }
+  return s.langs || (s.langs = []);
+}
+const langsCustom = () => langRecs().map(x => x.id);
+const langEmptyOn = () => D.settings.langEmpty !== false;
+const langList = () => uniq(LANGS.concat(langsCustom(), D.songs.map(s => s.lang).filter(Boolean))); // inclui idiomas que chegaram pela sincronização
+const langCount = n => D.songs.filter(s => (n === LANG_NONE ? !s.lang : s.lang === n)).length;
 const KEY_DEFAULTS = ['Tom original', '−2', '+2', '−4', '+4'];
 
 /* ---------- rascunho ---------- */
@@ -1483,7 +1536,7 @@ function secSong(d) {
   <div class="field" style="flex-wrap:wrap;gap:6px;padding:6px 10px"><span class="fx wrap g6 ac" id="aliases">${d.aliases.map((a, i) => `<span class="tag">${esc(a)}<button data-act="rmAlias" data-i="${i}" aria-label="Remover ${esc(a)}">${ic('close', 16)}</button></span>`).join('')}</span>
     <input id="f-aliasIn" data-enter="addAlias" enterkeyhint="done" autocomplete="off" placeholder="+ grafia (Enter)" style="flex:1;min-width:110px;border:0;outline:0;background:transparent;font:500 14px 'Manrope','Noto Sans JP',sans-serif;height:36px"></div>
   ${lbl('Cover de · código ou texto livre')}<div class="field">${ic('search', 20)}<input id="f-coverOf" data-f="coverOf" value="${esc(d.coverOf)}" placeholder="Ex.: 000001 ou nome da original" autocomplete="off"></div><div id="covres">${coverResults()}</div>
-  ${lbl('Idioma')}${chipsPick('lang', LANGS)}
+  ${lbl('Idioma')}${chipsPick('lang', langList())}
   ${fld('origin', 'Origem · anime, jogo, filme…', { ph: 'Texto livre, ajuda na busca' })}${sugBox('origin')}
   <div class="fx g10" style="align-items:flex-end"><div style="width:120px;flex:none">${fld('year', 'Ano', { mono: true, im: 'numeric', ph: '1995' })}</div><div class="muted fx1" id="decade" style="font-size:13px;padding-bottom:14px">${decadeOf(d.year) ? 'Década: ' + decadeOf(d.year) + ' (automático)' : ''}</div></div>
   ${areaF('lyric', 'Letra inicial · até 5 linhas', 'Original (cole ou digite)', 4)}
@@ -1695,6 +1748,12 @@ function settingsCards() {
     order: (() => { if (!syncReady()) return ''; const pl = renumPlan(); return `<div class="card"><h3>Organizar códigos</h3><p>Deixa as músicas em sequência, sem buracos: 000001, 000002, 000003… A ordem atual é mantida. Listas, histórico e fila acompanham.</p>
       <div class="mono muted" style="font-size:12px;margin-top:8px">${D.songs.length} músicas · ${pl.changed.length ? pl.changed.length + ' mudariam de código' : 'já em sequência'}</div>
       <div style="margin-top:10px">${btn('Reorganizar códigos', 'renumber', { cls: 'fx1', style: 'width:100%' })}</div></div>`; })(),
+    idiomas: `<div class="card"><h3>Idiomas</h3><p>Idiomas que aparecem no cadastro e no filtro. Os de origem não mudam; os que você criar podem ser removidos quando nenhuma música usa.</p>
+      ${langList().map(n => { const c = langCount(n), cu = !LANGS.includes(n); return `<div class="fx ac g8" style="min-height:44px;margin-top:4px;border-bottom:1px solid var(--line)"><span class="fx1 jp"><b>${esc(n)}</b> <span class="muted" style="font-size:12px">${LANGS.includes(n) ? 'padrão' : langsCustom().includes(n) ? 'seu' : 'veio das músicas'}</span></span><span class="mono muted" style="font-size:13px">${c} ${c === 1 ? 'música' : 'músicas'}</span>${cu ? `<button class="ib" style="width:36px;height:36px;color:${c ? 'var(--line)' : 'var(--danger)'}" data-act="langDel" data-id="${esc(n)}" ${c ? 'disabled title="Em uso"' : ''} aria-label="Remover ${esc(n)}">${ic('trash', 20)}</button>` : ''}</div>`; }).join('')}
+      <label class="fx ac g8" style="min-height:48px;margin-top:4px"><input type="checkbox" data-change="langEmpty" ${langEmptyOn() ? 'checked' : ''} aria-label="Sem idioma"><span class="fx1"><b>Sem idioma</b> <span class="muted" style="font-size:12px">fixo · mostra no filtro as músicas sem idioma</span></span><span class="mono muted" style="font-size:13px">${langCount(LANG_NONE)} ${langCount(LANG_NONE) === 1 ? 'música' : 'músicas'}</span></label>
+      <div class="fx g8" style="margin-top:10px"><div class="field fx1"><input id="langIn" data-enter="langAdd" enterkeyhint="done" placeholder="Novo idioma (ex.: Espanhol)" autocomplete="off" maxlength="24"></div>${btn('Adicionar', 'langAdd', { cls: 'primary', style: 'height:48px' })}</div></div>`,
+    fontes: `<div class="card"><h3>Fontes de dados online</h3><p>Escolha de onde o “Buscar online” pode trazer informações. Desligue as que você não usa.</p>
+      ${BASES.map(b => `<label class="radiocard" style="align-items:center;padding:10px 12px;margin:8px 0 0"><input type="checkbox" data-change="srcOn" data-id="${b.id}" ${baseOn(b.id) ? 'checked' : ''} aria-label="${b.name}"><span class="fx1"><b style="font-size:15px">${b.name}</b><span class="d" style="font-size:12px">${b.about}</span><span class="d" style="font-size:12px;color:var(--accent);font-weight:700">Traz: ${b.gives}</span></span></label>`).join('')}</div>`,
     tv: `<div class="card"><div class="fx ac g8"><h3 class="fx1">Enviar para a TV</h3><span class="fx ac g6 muted" style="font-size:12px;font-weight:700"><span class="dot ${D.settings.tvScreen ? 'ok' : 'unverified'}"></span>${D.settings.tvScreen ? 'Pareada: ' + esc(D.settings.tvScreen.name) : 'Não pareada'}</span></div>
       <p>Recurso não oficial do YouTube. Precisa de um proxy seu (veja o passo a passo no LEIA-ME) para o navegador conseguir falar com o YouTube.</p>
       <p style="margin-top:10px;font-weight:700">Endereço do proxy</p><div class="field" style="margin-top:4px"><input id="tvproxy" data-change="tvProxy" value="${esc(D.settings.tvProxy || '')}" placeholder="https://karatube.seunome.workers.dev" autocapitalize="off" spellcheck="false"></div>
@@ -1720,8 +1779,8 @@ function settingsCards() {
 function viewSettings() {
   const cards = settingsCards();
   const hd = `<div class="hdr"><h1>Ajustes</h1></div>`;
-  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.order}${cards.store}</div><div>${cards.backup}${cards.sync}${cards.tv}${cards.ver}</div></div></div>`;
-  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.sync}${cards.device}${cards.order}${cards.tv}${cards.store}${cards.ver}</div>`;
+  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.order}${cards.idiomas}${cards.store}</div><div>${cards.backup}${cards.sync}${cards.fontes}${cards.tv}${cards.ver}</div></div></div>`;
+  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.sync}${cards.device}${cards.order}${cards.idiomas}${cards.fontes}${cards.tv}${cards.store}${cards.ver}</div>`;
 }
 
 /* ---------- primeira abertura ---------- */
@@ -1770,7 +1829,7 @@ SHEETS.filters = t => {
   const f = t.f; const cnt = D.songs.filter(s => matchSong(s, ui.query, f)).length;
   const sec = (title, inner) => `<div style="margin-bottom:14px"><div class="lbl" style="margin:0 0 6px">${title}</div>${inner}</div>`;
   const chips = (field, opts, label) => `<div class="chips">${opts.map(o => chipB(esc(label ? label(o) : o), 'fSet', f[field] === o, { f: field, v: o })).join('')}</div>`;
-  const langs = uniq(songValues(s => s.lang).concat(LANGS.slice(0, 3)));
+  const langs = langList(); if (langEmptyOn() || f.langs.includes(LANG_NONE)) langs.push(LANG_NONE);
   const origins = songValues(s => s.origin).slice(0, 8);
   const voices = uniq(VOICES.concat(allValues(v => [v.voice])));
   const vtypes = uniq(VTYPES.concat(allValues(v => [v.vtype])));
@@ -1780,7 +1839,7 @@ SHEETS.filters = t => {
     html: `<div class="sh-t"><div class="fx1"><h3>Filtros</h3></div>${btn('Limpar', 'fClear', { cls: 'text' })}${ib('close', 'closeSheet', 'Fechar')}</div>
     <div class="sh-b" style="padding-top:12px">
       ${sec('Mostrar', `<div class="chips">${[['all', 'Todas'], ['fav', '★ Favoritas'], ['never', 'Nunca cantadas']].map(x => chipB(x[1], 'fSet', f.show === x[0], { f: 'show', v: x[0] })).join('')}</div>`)}
-      ${sec('Idioma', chips('lang', langs))}
+      ${sec('Idioma · pode marcar vários', `<div class="chips">${langs.map(o => chipB(esc(o === LANG_NONE ? 'Sem idioma' : o), 'fLang', f.langs.includes(o), { v: o })).join('')}</div>`)}
       ${origins.length ? sec('Origem', chips('origin', origins)) : ''}
       ${sec('Voz', chips('voice', voices))}
       ${sec('Tipo de vídeo', chips('vtype', vtypes))}
@@ -1938,7 +1997,7 @@ function onlineGroup(b, t) {
 }
 SHEETS.online = t => {
   const nSel = t.sel.length;
-  const bases = `<div class="lbl first">Onde procurar</div>${BASES.map(b => `<label class="radiocard" style="align-items:center;padding:10px 12px;margin-bottom:6px"><input type="checkbox" data-change="onBase" data-id="${b.id}" ${t.sel.includes(b.id) ? 'checked' : ''} aria-label="${b.name}"><span class="fx1"><b style="font-size:15px">${b.name}</b><span class="d" style="font-size:12px">${b.about}</span></span></label>`).join('')}`;
+  const bases = `<div class="lbl first">Onde procurar</div>${(activeBases().length ? activeBases().map(b => `<label class="radiocard" style="align-items:center;padding:10px 12px;margin-bottom:6px"><input type="checkbox" data-change="onBase" data-id="${b.id}" ${t.sel.includes(b.id) ? 'checked' : ''} aria-label="${b.name}"><span class="fx1"><b style="font-size:15px">${b.name}</b><span class="d" style="font-size:12px">${b.about}</span></span></label>`).join('') : '<div class="hint">Nenhuma fonte ligada. Ligue em Ajustes › Fontes de dados online.</div>')}`;
   const nChk = Object.keys(t.chk).filter(k => t.chk[k]).length;
   const results = `<div class="lbl first">Resultados · marque só o que quiser levar</div>${t.ran && t.ran.length ? t.ran.map(id => onlineGroup(BASES.find(b => b.id === id), t)).join('') : '<div class="hint">Escolha as bases e toque em Pesquisar.</div>'}`;
   const search = `<div class="field" style="margin:4px 0 0">${ic('search', 20)}<input id="onq" value="${esc(t.q)}" data-enter="onSearch" placeholder="Título e cantor" autocomplete="off" class="jp"><button class="btn primary sm" data-act="onSearch" style="height:38px" ${nSel ? '' : 'disabled'}>Pesquisar</button></div>`;
@@ -2064,6 +2123,13 @@ const ACT = {
     if (d.f === 'show') f.show = v; else f[d.f] = f[d.f] === v ? (d.f === 'minRating' ? 0 : '') : v;
     render();
   },
+  fLang(d) { const f = sh().f; f.langs = f.langs.includes(d.v) ? f.langs.filter(x => x !== d.v) : f.langs.concat([d.v]); render(); },
+  langAdd() {
+    const e = $('#langIn'); const v = e && e.value.trim().replace(/\s+/g, ' '); if (!v) return;
+    if (langList().some(n => norm(n) === norm(v))) { toast('Esse idioma já existe.'); return; }
+    langRecs().push({ id: v, updated: now() }); save('settings'); syncSoon(3000); render(); const n = $('#langIn'); if (n) n.focus();
+  },
+  langDel(d) { if (langCount(d.id)) return; D.settings.langs = langRecs().filter(x => x.id !== d.id); save('settings'); syncSoon(3000); render(); },
   fTag(d) { const f = sh().f; f.tags = f.tags.includes(d.v) ? f.tags.filter(x => x !== d.v) : f.tags.concat([d.v]); render(); },
   fClear() { sh().f = F0(); render(); },
   fApply() { ui.f = sh().f; ui.limit = 150; ui.sheets.pop(); render(); },
@@ -2239,13 +2305,13 @@ const ACT = {
   /* buscar online */
   onlineOpen() {
     const x = ui.draft; const q = [x.title, x.singer].filter(Boolean).join(' ').trim() || x.ytTitle || '';
-    openSheet({ type: 'online', q, sel: (D.settings.bases || []).slice(), res: {}, chk: {}, ran: [], step: 'bases' });
+    openSheet({ type: 'online', q, sel: (D.settings.bases || []).filter(baseOn), res: {}, chk: {}, ran: [], step: 'bases' });
   },
   onSearch() {
     const t = sh(); const e = $('#onq'); if (e) t.q = e.value; if (!t.sel.length) return toast('Marque ao menos uma base.');
     if (!t.q.trim()) return toast('Escreva o que procurar.');
     D.settings.bases = t.sel.slice(); save('settings');
-    t.ran = BASES.map(b => b.id).filter(id => t.sel.includes(id)); t.res = {}; t.chk = {}; t.step = 'results'; render();
+    t.ran = activeBases().map(b => b.id).filter(id => t.sel.includes(id)); t.res = {}; t.chk = {}; t.step = 'results'; render();
     searchBases(t.ran, t.q.trim(), (id, r) => { t.res[id] = r; onlineRefresh(t); if (sh() === t) render(); });
   },
   onBack() { sh().step = 'bases'; render(); },
@@ -2308,6 +2374,8 @@ document.addEventListener('change', e => {
     case 'devSlot': { const dv = devInfo(); const k = parseInt(t.value, 10); if (dv && k >= 0) { dv.slot = k; save('settings'); render(); syncSoon(1500); toast('Faixa trocada. Vale só para músicas novas.'); } break; }
     case 'frName': ui.fr.name = t.value; break;
     case 'tvProxy': D.settings.tvProxy = t.value.trim(); save('settings'); break;
+    case 'langEmpty': D.settings.langEmpty = t.checked; D.settings.langEmptyAt = now(); save('settings'); syncSoon(3000); if (!t.checked) ui.f.langs = ui.f.langs.filter(x => x !== LANG_NONE); render(); break;
+    case 'srcOn': { const off = D.settings.basesOff || (D.settings.basesOff = []); const i = off.indexOf(t.dataset.id); if (t.checked && i >= 0) off.splice(i, 1); if (!t.checked && i < 0) off.push(t.dataset.id); save('settings'); render(); break; }
     case 'onBase': { const i = s.sel.indexOf(t.dataset.id); if (t.checked && i < 0) s.sel.push(t.dataset.id); if (!t.checked && i >= 0) s.sel.splice(i, 1); render(); break; }
     case 'onChk': s.chk[t.dataset.k] = t.checked; render(); break;
     case 'impNew': { const n = s.plan.novas.find(x => x.id === t.dataset.id); if (n) n.checked = t.checked; render(); break; }
@@ -2332,6 +2400,9 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener && matchMedia('(pref
   if (!MGR && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { }); if (!MGR && /^https?:$/.test(location.protocol) && navigator.onLine) setTimeout(() => checkUpdate(true), 3000);
   setTimeout(() => ghSyncNow(false), 3500);
 })();
+// o teclado do celular pode deslocar a página inteira; ao sair do campo volta ao topo
+document.addEventListener('focusout', () => setTimeout(() => { if (window.scrollY || document.documentElement.scrollTop) window.scrollTo(0, 0); }, 120));
+window.addEventListener('scroll', () => { if (window.scrollY) window.scrollTo(0, 0); }, { passive: true });
 
 'use strict';
 /* =====================================================================
@@ -2446,7 +2517,7 @@ function viewSettings() {
     <div class="mono muted" style="font-size:12px;margin-top:8px">${last ? 'Último backup: ' + fmtDay(last) + ' · ' : 'Nenhum backup em arquivo ainda · '}${D.songs.length} músicas · ${D.versions.length} versões</div>
     <div class="fx g8" style="margin-top:10px">${btn('Salvar arquivo', 'saveDevice', { cls: 'primary grow', icon: 'download' })}${btn('Importar', 'import', { cls: 'grow', icon: 'upload' })}</div></div>`;
   const ver = `<div class="card"><h3>Gerenciador</h3><p class="mono" style="font-size:13px;font-weight:600;margin-top:4px">v${APP_VERSION} · ${fmtBuild(APP_BUILD * 1000)}</p><p style="margin-top:6px">Para atualizar, baixe o gerenciador.html mais novo.</p></div>`;
-  return `<div class="hdr"><h1>Ajustes</h1></div><div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${c.apar}${c.device}${c.order}${ver}</div><div>${c.sync}${backup}${c.store}</div></div></div>`;
+  return `<div class="hdr"><h1>Ajustes</h1></div><div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${c.apar}${c.device}${c.order}${c.idiomas}${ver}</div><div>${c.sync}${c.fontes}${backup}${c.store}</div></div></div>`;
 }
 
 /* ---------- primeira abertura: apelido + repositório + token ---------- */
