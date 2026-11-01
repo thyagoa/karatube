@@ -218,12 +218,29 @@ html,body{overflow:hidden}
 body{position:fixed;inset:0;width:100%}
 #app,.shell{height:100%}
 
+.scard{position:relative;margin-bottom:10px;border-radius:20px;background:var(--surface);border:1px solid var(--line);overflow:hidden;text-align:left;width:100%;color:var(--text)}
+.scard.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.scard .t{font-size:17px;font-weight:800;line-height:1.25}
+.scard .r{font-size:13px;color:var(--muted)}
+.sbody{display:flex;align-items:stretch;gap:14px;padding:14px 14px 12px}
+.sthumb{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;flex:none}
+.syear{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.02em;min-height:15px}
+.sq{width:52px;flex:none;display:flex;align-items:flex-end;justify-content:center}
+.qbtn{width:52px;height:52px;border-radius:16px;border:0;background:var(--surface2);background:color-mix(in srgb,var(--accent) 16%,var(--surface));color:var(--accent);display:flex;align-items:center;justify-content:center;padding:0}
+.sfoot{display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--bg);border-top:1px solid var(--line)}
+.slang{flex:1;font-size:12px;font-weight:700;color:var(--accent)}
+.svers{flex:none;font-size:12px;font-weight:700}
+.sfav{position:absolute;top:4px;right:4px;width:44px;height:44px;border:0;background:none;padding:0;display:flex;align-items:center;justify-content:center}
+.qopt{display:flex;align-items:center;gap:12px;padding:10px 12px;margin-top:8px;border-radius:14px;border:1px solid var(--line);background:var(--surface);width:100%;color:var(--text);font:700 14px 'Manrope',sans-serif;text-align:left}
+.qopt.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.qopt .qbtn{width:44px;height:44px;border-radius:14px;flex:none}
+
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.8.0",APP_BUILD=1793506070,MGR=true;
+const APP_VERSION="1.9.0",APP_BUILD=1793508408,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -243,13 +260,21 @@ const DAY = 86400000;
 const uniq = a => Array.from(new Set(a));
 const clone = o => JSON.parse(JSON.stringify(o));
 
+// ícone do botão "adicionar à fila" (escolhido em Ajustes)
+const QICONS = {
+  A: '<path d="M4 6h10M4 11h10M4 16h6M17 13v6M14 16h6"/>',
+  B: '<path d="M5 8l9 5.5L5 19z"/><path d="M18 3v6M15 6h6"/>',
+  D: '<path d="M5 6a3 3 0 016 0v5a3 3 0 01-6 0z"/><path d="M3 11a5 5 0 0010 0M8 16v4"/><path d="M19 7v8M15 11h8"/>',
+  E: '<path d="M8.5 17V5l8-2v12"/><path d="M4 17a2.5 2.5 0 105 0a2.5 2.5 0 10-5 0M12 15a2.5 2.5 0 105 0a2.5 2.5 0 10-5 0"/><path d="M20 18v4M18 20h4"/>'
+};
+const QICON_NAMES = { A: 'Lista com mais', B: 'Play com mais', D: 'Microfone com mais', E: 'Nota com mais' };
 const ICON = {
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   more: '<circle cx="12" cy="5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/>',
-  qadd: '<path d="M4 6h10M4 11h10M4 16h6M17 13v6M14 16h6"/>',
+  get qadd() { return QICONS[(typeof D !== 'undefined' && D.settings && D.settings.qIcon) || 'A'] || QICONS.A; },
   queue: '<path d="M4 6h16M4 12h16M4 18h10"/>',
   star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
   trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
@@ -1276,17 +1301,27 @@ function shellWide() {
 
 /* ---------- catálogo ---------- */
 function visibleSongs() { return sortSongs(D.songs.filter(s => matchSong(s, ui.query, ui.f)), ui.sort, ui.dir); }
-function songRow(s) {
+function songCard(s, act, sel) {
   const v = bestVersion(s.id); const vs = X.vers[s.id] || [];
-  const cov = s.coverOf ? coverText(s) : '';
-  const meta = [cov, s.origin, s.year, vs.length + (vs.length === 1 ? ' versão' : ' versões')].filter(Boolean).slice(0, cov ? 2 : 3).join(' · ');
-  return `<div class="srow ${ui.wide && ui.songSel === s.id ? 'sel' : ''}" role="button" tabindex="0" data-act="openSong" data-id="${s.id}">
-    <div class="col ac" style="flex:none;gap:4px">${songThumb(s, v, 64, 28)}<span class="sungcnt" title="Vezes cantada (todas as versões)">♪×${vs.reduce((n, x) => n + (x.sung || 0), 0)}</span></div>
-    <div class="fx1"><div class="t ell jp">${esc(s.title)}</div>${s.roman ? `<div class="r ell">${esc(s.roman)}</div>` : ''}
-      <div class="ell" style="font-size:13px;margin-top:2px">${esc(singersStr(s))}</div>
-      <div class="fx ac g8" style="margin-top:6px"><span class="codepill">${s.id}</span><span class="r ell" style="font-size:12px">${meta}</span></div></div>
-    <div class="stack"><button class="ib" style="color:${s.fav ? 'var(--star)' : 'var(--muted)'}" data-act="fav" data-id="${s.id}" aria-label="${s.fav ? 'Tirar dos favoritos' : 'Favoritar'}">${s.fav ? starFill(24) : ic('star', 24)}</button><button class="ib acc" data-act="addQ" data-id="${s.id}" aria-label="Adicionar à fila">${ic('qadd', 24)}</button></div>
+  const sung = vs.reduce((n, x) => n + (x.sung || 0), 0);
+  const org = [s.coverOf ? coverText(s) : '', s.origin].filter(Boolean).join(' · ');
+  return `<div class="scard ${sel ? 'sel' : ''}" role="button" tabindex="0" data-act="openSong" data-id="${s.id}">
+    <div class="sbody">
+      <div class="sthumb">${songThumb(s, v, 64, 28)}<span class="sungcnt" title="Vezes cantada (todas as versões)">♪×${sung}</span></div>
+      <div class="fx1" style="min-width:0;align-self:center">
+        ${s.year ? `<div class="syear">${esc(s.year)}</div>` : ''}
+        <div class="t ell jp">${esc(s.title)}</div>${s.roman ? `<div class="r ell">${esc(s.roman)}</div>` : ''}
+        <div class="ell" style="font-size:13px;margin-top:2px">${esc(singersStr(s))}</div>
+        ${org ? `<div class="r ell" style="font-size:12px;margin-top:2px">${org}</div>` : ''}
+      </div>
+      <div class="sq">${act}</div>
+    </div>
+    <div class="sfoot"><span class="codepill">${s.id}</span><span class="slang">${esc(s.lang || '')}</span><span class="svers">${vs.length} ${vs.length === 1 ? 'versão' : 'versões'}</span></div>
+    <button class="sfav" style="color:${s.fav ? 'var(--star)' : 'var(--muted)'}" data-act="fav" data-id="${s.id}" aria-label="${s.fav ? 'Tirar dos favoritos' : 'Favoritar'}">${s.fav ? starFill(24) : ic('star', 24)}</button>
   </div>`;
+}
+function songRow(s) {
+  return songCard(s, `<button class="qbtn" data-act="addQ" data-id="${s.id}" aria-label="Adicionar à fila">${ic('qadd', 28)}</button>`, ui.wide && ui.songSel === s.id);
 }
 function listBody(res) {
   if (!res.length) return `<div class="empty" style="padding:40px 16px"><h3 style="margin:0">Nada encontrado</h3><p>Tente outras palavras${filterCount(ui.f) ? ' ou limpe os filtros' : ''}.</p>${filterCount(ui.f) ? `<div style="margin-top:14px">${btn('Limpar filtros', 'clearFilters', { cls: 'primary' })}</div>` : ''}</div>`;
@@ -1752,6 +1787,8 @@ function settingsCards() {
       ${langList().map(n => { const c = langCount(n), cu = !LANGS.includes(n); return `<div class="fx ac g8" style="min-height:44px;margin-top:4px;border-bottom:1px solid var(--line)"><span class="fx1 jp"><b>${esc(n)}</b> <span class="muted" style="font-size:12px">${LANGS.includes(n) ? 'padrão' : langsCustom().includes(n) ? 'seu' : 'veio das músicas'}</span></span><span class="mono muted" style="font-size:13px">${c} ${c === 1 ? 'música' : 'músicas'}</span>${cu ? `<button class="ib" style="width:36px;height:36px;color:${c ? 'var(--line)' : 'var(--danger)'}" data-act="langDel" data-id="${esc(n)}" ${c ? 'disabled title="Em uso"' : ''} aria-label="Remover ${esc(n)}">${ic('trash', 20)}</button>` : ''}</div>`; }).join('')}
       <label class="fx ac g8" style="min-height:48px;margin-top:4px"><input type="checkbox" data-change="langEmpty" ${langEmptyOn() ? 'checked' : ''} aria-label="Sem idioma"><span class="fx1"><b>Sem idioma</b> <span class="muted" style="font-size:12px">fixo · mostra no filtro as músicas sem idioma</span></span><span class="mono muted" style="font-size:13px">${langCount(LANG_NONE)} ${langCount(LANG_NONE) === 1 ? 'música' : 'músicas'}</span></label>
       <div class="fx g8" style="margin-top:10px"><div class="field fx1"><input id="langIn" data-enter="langAdd" enterkeyhint="done" placeholder="Novo idioma (ex.: Espanhol)" autocomplete="off" maxlength="24"></div>${btn('Adicionar', 'langAdd', { cls: 'primary', style: 'height:48px' })}</div></div>`,
+    qicon: `<div class="card"><h3>Botão de adicionar à fila</h3><p>Escolha o ícone do botão que coloca a música na fila.</p>
+      ${Object.keys(QICONS).map(k => `<button class="qopt ${(D.settings.qIcon || 'A') === k ? 'sel' : ''}" data-act="qIcon" data-v="${k}" role="radio" aria-checked="${(D.settings.qIcon || 'A') === k}"><span class="qbtn"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${QICONS[k]}</svg></span><span class="fx1">${QICON_NAMES[k]}</span></button>`).join('')}</div>`,
     fontes: `<div class="card"><h3>Fontes de dados online</h3><p>Escolha de onde o “Buscar online” pode trazer informações. Desligue as que você não usa.</p>
       ${BASES.map(b => `<label class="radiocard" style="align-items:center;padding:10px 12px;margin:8px 0 0"><input type="checkbox" data-change="srcOn" data-id="${b.id}" ${baseOn(b.id) ? 'checked' : ''} aria-label="${b.name}"><span class="fx1"><b style="font-size:15px">${b.name}</b><span class="d" style="font-size:12px">${b.about}</span><span class="d" style="font-size:12px;color:var(--accent);font-weight:700">Traz: ${b.gives}</span></span></label>`).join('')}</div>`,
     tv: `<div class="card"><div class="fx ac g8"><h3 class="fx1">Enviar para a TV</h3><span class="fx ac g6 muted" style="font-size:12px;font-weight:700"><span class="dot ${D.settings.tvScreen ? 'ok' : 'unverified'}"></span>${D.settings.tvScreen ? 'Pareada: ' + esc(D.settings.tvScreen.name) : 'Não pareada'}</span></div>
@@ -1779,8 +1816,8 @@ function settingsCards() {
 function viewSettings() {
   const cards = settingsCards();
   const hd = `<div class="hdr"><h1>Ajustes</h1></div>`;
-  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.order}${cards.idiomas}${cards.store}</div><div>${cards.backup}${cards.sync}${cards.fontes}${cards.tv}${cards.ver}</div></div></div>`;
-  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.sync}${cards.device}${cards.order}${cards.idiomas}${cards.fontes}${cards.tv}${cards.store}${cards.ver}</div>`;
+  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.order}${cards.idiomas}${cards.qicon}${cards.store}</div><div>${cards.backup}${cards.sync}${cards.fontes}${cards.tv}${cards.ver}</div></div></div>`;
+  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.sync}${cards.device}${cards.order}${cards.idiomas}${cards.qicon}${cards.fontes}${cards.tv}${cards.store}${cards.ver}</div>`;
 }
 
 /* ---------- primeira abertura ---------- */
@@ -2259,6 +2296,7 @@ const ACT = {
   pick(d) { const x = ui.draft; x[d.f] = x[d.f] === d.v ? '' : d.v; render(); },
   pickLink(d) { ui.draft.link = d.v; render(); },
   pickRate(d) { const n = +d.n; ui.draft.rating = ui.draft.rating === n ? 0 : n; render(); },
+  qIcon(d) { D.settings.qIcon = d.v; save('settings'); render(); },
   clearQ() { ui.query = ''; ui.limit = 150; const q = $('#q'); if (q) { q.value = ''; q.focus(); } const c = $('.qclear'); if (c) c.hidden = true; updateList(); },
   addAlias() { const e = $('#f-aliasIn'); const v = e && e.value.trim(); if (!v) return; const x = ui.draft; if (!x.aliases.map(norm).includes(norm(v)) && norm(v) !== norm(x.singer)) x.aliases.push(v); render(); const n = $('#f-aliasIn'); if (n) n.focus(); },
   rmAlias(d) { ui.draft.aliases.splice(+d.i, 1); render(); },
@@ -2440,16 +2478,7 @@ function shellWide() {
 
 /* ---------- catálogo e detalhe ---------- */
 function songRow(s) {
-  const v = bestVersion(s.id); const vs = X.vers[s.id] || [];
-  const cov = s.coverOf ? coverText(s) : '';
-  const meta = [cov, s.origin, s.year, vs.length + (vs.length === 1 ? ' versão' : ' versões')].filter(Boolean).slice(0, cov ? 2 : 3).join(' · ');
-  return `<div class="srow ${ui.songSel === s.id ? 'sel' : ''}" role="button" tabindex="0" data-act="openSong" data-id="${s.id}">
-    <div class="col ac" style="flex:none;gap:4px">${songThumb(s, v, 64, 28)}<span class="sungcnt" title="Vezes cantada (todas as versões)">♪×${vs.reduce((n, x) => n + (x.sung || 0), 0)}</span></div>
-    <div class="fx1"><div class="t ell jp">${esc(s.title)}</div>${s.roman ? `<div class="r ell">${esc(s.roman)}</div>` : ''}
-      <div class="ell" style="font-size:13px;margin-top:2px">${esc(singersStr(s))}</div>
-      <div class="fx ac g8" style="margin-top:6px"><span class="codepill">${s.id}</span><span class="r ell" style="font-size:12px">${meta}</span></div></div>
-    <div class="stack"><button class="ib" style="color:${s.fav ? 'var(--star)' : 'var(--muted)'}" data-act="fav" data-id="${s.id}" aria-label="${s.fav ? 'Tirar dos favoritos' : 'Favoritar'}">${s.fav ? starFill(24) : ic('star', 24)}</button><button class="ib acc" data-act="editSong" data-id="${s.id}" aria-label="Editar">${ic('edit', 22)}</button></div>
-  </div>`;
+  return songCard(s, `<button class="qbtn" data-act="editSong" data-id="${s.id}" aria-label="Editar">${ic('edit', 26)}</button>`, ui.songSel === s.id);
 }
 function vcard(v) {
   const s = songOf(v);
