@@ -22,12 +22,13 @@ Não tem servidor: o catálogo fica no seu aparelho e em um **repositório priva
 ## 1. O que ele faz
 
 - **Códigos:** cada música tem um código `123456` e cada versão (vídeo, tom ou voz diferente) `123456-01`, `123456-02`…
-- **Cadastro rápido:** cole o link do YouTube e ele preenche o título e o canal. Dá para buscar capa, ano, origem (anime, jogo…) e grafias do cantor em bases online (MusicBrainz, AnimeThemes, AniList, Jikan, VocaDB, LRCLIB, iTunes).
+- **Cadastro rápido:** cole o link do YouTube e ele preenche o título e o canal. Dá para buscar capa, ano, origem (anime, jogo…) e grafias do cantor em bases online sem chave (MusicBrainz, AnimeThemes, AniList, Jikan, VocaDB, LRCLIB, iTunes, Deezer, Cover Art Archive, Wikidata/Wikipedia). Em **Ajustes › Fontes de dados** você liga e desliga cada uma, vendo que tipo de dado ela traz.
 - **Romaji:** gera o título e a letra inicial em romaji a partir do japonês.
+- **Busca e filtros:** a busca olha título, cantor, letra, origem e versões; entre aspas (`"Hey Ho"`) procura a frase exata. Os filtros combinam idioma (vários), década, origem, voz, tipo de vídeo, tags, nota e status do link.
 - **Fila:** monte a fila da noite; a música sai da fila quando você marca "Cantei".
 - **Listas e histórico:** listas de músicas e o histórico do que foi cantado, com notas.
 - **Sincronização (obrigatória para cadastrar):** celular, tablet e computador ficam iguais, com cópia no seu repositório privado do GitHub.
-- **Enviar para a TV:** opcional (recurso não oficial do YouTube).
+- **Enviar para a TV:** opcional (recurso não oficial do YouTube). Na lista de versões, o ícone de TV também coloca aquela versão como a música da vez (a que estava vai para a próxima), com **Desfazer**.
 
 ## 2. Usando o app no dia a dia
 
@@ -48,7 +49,10 @@ Não tem servidor: o catálogo fica no seu aparelho e em um **repositório priva
 
 **Outras coisas úteis:**
 - **Nº** no catálogo: vai direto a um código.
-- **Filtros e ordenação:** idioma, origem, voz, tipo de vídeo, tags, nota, status do link.
+- **Card da música:** capa com o total de vezes cantada (`♪×n`), ano, título, cantor, origem, favorito no canto, e no rodapé o código, o idioma e quantas versões tem. Cada versão tem o seu card, com status do link, nota, etiquetas e os botões de abrir no YouTube, TV, fila e mais ações.
+- **Filtros e ordenação:** idioma (marque quantos quiser), década (calculada pelo ano), origem, voz, tipo de vídeo, tags, nota, status do link. O campo de busca tem um X para limpar o texto.
+- **Ajustes › Idiomas:** lista os idiomas com a contagem de músicas, permite criar e remover os seus e ligar a categoria "Sem idioma". A lista é sincronizada entre os aparelhos.
+- **Ajustes › Ícone da fila:** escolhe o desenho do botão de adicionar à fila.
 - **Botão Sync** (barra de baixo / trilho): sincroniza na hora. Verde = em dia, vermelho = erro.
 - **Ajustes › Organizar códigos:** tira os buracos da numeração (000001, 000002, 000003…). Sincronize os outros aparelhos antes de cadastrar depois disso.
 - **Ajustes › Compartilhar e backup:** salva um arquivo de backup (Drive, WhatsApp…) e importa de volta.
@@ -119,7 +123,8 @@ Se já tem um backup do KaraTube: **Ajustes › Compartilhar e backup › Import
 | Músicas, versões, listas, histórico | No aparelho + `catalogo.json` no repositório de dados |
 | Capas | `capas/*.txt` no repositório de dados |
 | Aparelhos e faixas de códigos | `dispositivos.json` no repositório de dados |
-| Fila e ajustes | Só no aparelho (não sincronizam) |
+| Idiomas criados por você | `catalogo.json` no repositório de dados (sincronizam) |
+| Fila e demais ajustes (fontes de dados, ícone da fila…) | Só no aparelho (não sincronizam) |
 | Token | Só no navegador do aparelho |
 
 ## 5. Enviar para a TV (opcional)
