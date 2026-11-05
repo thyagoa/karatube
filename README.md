@@ -68,6 +68,14 @@ Uma página só (`gerenciador.html`) para cadastrar e editar com teclado e tela 
 - Cadastro igual ao do app (música, versão, busca online, romaji). **Ctrl+S** salva; em ~2 segundos já está no GitHub.
 - O computador entra como mais um aparelho, com a própria faixa de códigos.
 
+## Listador de canais do YouTube
+
+Uma página à parte, `listador.html` (<https://thyagoa.github.io/karatube/listador.html>), para listar todos os vídeos de um canal de karaokê e copiar os links para cadastrar no KaraTube. Você informa o canal (`@nome`, endereço ou ID) e a **sua** chave da YouTube Data API v3 (gratuita; o passo a passo está na própria página). A chave fica só no navegador de quem usa, nunca no site.
+
+- Lista do mais novo ao mais antigo, com título, data, duração, views e link; filtro por título, copiar link por linha, copiar todos os links, copiar tabela para planilha e baixar CSV.
+- Títulos em **japonês** aparecem com **furigana** sobre os kanjis e o **romaji** embaixo; o filtro também acha pelo romaji. A caixinha "Furigana e romaji" liga e desliga (a primeira vez baixa o dicionário, ~17 MB).
+- Canais muito grandes (mais de ~20.000 vídeos): um botão busca os mais antigos além do limite da API.
+
 ## 4. Montar o seu próprio KaraTube
 
 Cada pessoa tem o próprio catálogo, em contas separadas. Você precisa de uma conta gratuita no GitHub. Leva uns 15 minutos.

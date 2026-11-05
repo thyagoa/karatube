@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Listador de vídeos de canal do YouTube</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --text:#1c1f24; --muted:#6a7280; --line:#e2e5ea;
+    --accent:#d92d20; --accent-d:#b42318; --ok:#067647; --ok-bg:#ecfdf3;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14161a; --card:#1d2026; --text:#e8eaed; --muted:#9aa3b0; --line:#2c313a; --ok-bg:#12281d; --ok:#5fd39a;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text)}
+  .wrap{max-width:1100px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:1.4rem;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:4px}
+  input[type=text],input[type=password],input[type=search]{
+    width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+  input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  .row{display:grid;grid-template-columns:2fr 1.4fr auto;gap:12px;align-items:end}
+  @media(max-width:700px){.row{grid-template-columns:1fr}}
+  button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--text);padding:9px 14px;border-radius:8px}
+  button:hover{border-color:var(--muted)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.primary:hover{background:var(--accent-d)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  details{margin-top:12px;color:var(--muted);font-size:.88rem}
+  details summary{cursor:pointer}
+  details ol{margin:8px 0 0 18px;padding:0}
+  code{background:var(--bg);padding:1px 5px;border-radius:4px}
+  .status{margin-top:12px;font-size:.9rem;color:var(--muted)}
+  .status.err{color:var(--accent)}
+  .bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:8px;display:none}
+  .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  .chan{display:flex;gap:12px;align-items:center}
+  .chan img{width:48px;height:48px;border-radius:50%}
+  .chan b{font-size:1.05rem}
+  .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  .tools input{flex:1;min-width:180px}
+  .tablewrap{overflow:auto;border:1px solid var(--line);border-radius:10px}
+  table{border-collapse:collapse;width:100%;min-width:760px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{position:sticky;top:0;background:var(--card);font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
+  th:hover{color:var(--text)}
+  tr:last-child td{border-bottom:0}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.t a{color:var(--text);text-decoration:none}
+  td.t a:hover{text-decoration:underline}
+  .small{padding:5px 10px;font-size:.82rem;white-space:nowrap}
+  .copied{background:var(--ok-bg)!important;color:var(--ok)!important;border-color:var(--ok)!important}
+  .aviso{background:var(--bg);border:1px solid var(--accent);border-radius:10px;padding:12px;margin-bottom:14px;font-size:.9rem}
+  .ver{font-size:.7rem;font-weight:600;vertical-align:middle;background:var(--accent);color:#fff;padding:2px 8px;border-radius:10px;margin-left:6px}
+  .hist{margin:-8px 0 16px;font-size:.85rem;color:var(--muted)}
+  .hist summary{cursor:pointer}
+  .hist ul{margin:8px 0 0;padding-left:18px}
+  .hist li{margin-bottom:4px}
+  .count{color:var(--muted);font-size:.9rem;margin-left:auto}
+  .jp{display:flex;align-items:center;gap:6px;margin:0;font-size:.85rem;color:var(--text);white-space:nowrap;cursor:pointer}
+  .tools .jp input{width:auto;flex:none;min-width:0}
+  .jpst{color:var(--muted);font-size:.82rem}
+  td.t a{line-height:1.9}
+  td.t rt{font-size:.58em;color:var(--muted)}
+  td.t .rom{display:block;font-size:.82rem;color:var(--muted);margin-top:1px}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Listador de vídeos de canal do YouTube <span class="ver">v1.4</span></h1>
+  <p class="sub">Informe o canal e receba todos os vídeos com link, botão de copiar e exportação para planilha.</p>
+  <details class="hist">
+    <summary>Histórico de versões</summary>
+    <ul>
+      <li><b>v1.4</b> (05/11/2026): títulos em japonês aparecem com furigana sobre os kanjis e o romaji embaixo; o filtro também acha pelo romaji.</li>
+      <li><b>v1.3</b> (05/11/2026): número da versão e histórico de alterações na página.</li>
+      <li><b>v1.2</b> (05/11/2026): total oficial do canal ao lado da contagem; lista do mais novo ao mais antigo; botão para buscar vídeos além do limite de ~20.000, com progresso salvo no navegador.</li>
+      <li><b>v1.1</b> (05/11/2026): correção do erro "URL object could not be cloned" na pré-visualização do app.</li>
+      <li><b>v1.0</b> (05/11/2026): primeira versão: lista por canal, copiar link, copiar tabela, CSV, filtro e ordenação.</li>
+    </ul>
+  </details>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="canal">Canal (@handle, URL ou ID começando com UC)</label>
+        <input type="text" id="canal" placeholder="@NomeDoCanal ou https://www.youtube.com/@NomeDoCanal" autocomplete="off">
+      </div>
+      <div>
+        <label for="chave">Chave da API do YouTube</label>
+        <input type="password" id="chave" placeholder="AIza..." autocomplete="off">
+      </div>
+      <button class="primary" id="buscar">Listar vídeos</button>
+    </div>
+    <details>
+      <summary>Como conseguir a chave (grátis, 2 minutos)</summary>
+      <ol>
+        <li>Acesse <code>console.cloud.google.com</code> e crie um projeto.</li>
+        <li>Em <b>APIs e serviços → Biblioteca</b>, ative a <b>YouTube Data API v3</b>.</li>
+        <li>Em <b>Credenciais → Criar credenciais → Chave de API</b>, copie a chave e cole acima.</li>
+        <li>A chave fica salva só neste navegador. A cota gratuita (10.000 unidades/dia) dá para listar canais com milhares de vídeos.</li>
+      </ol>
+    </details>
+    <div class="bar" id="bar"><i id="barfill"></i></div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card" id="resultado" hidden>
+    <div class="chan" id="chaninfo" style="margin-bottom:14px"></div>
+    <div class="aviso" id="aviso" hidden>
+      <div id="avisoTxt"></div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="primary" id="maisAntigos"></button>
+        <button id="parar" hidden>Parar</button>
+      </div>
+    </div>
+    <div class="tools">
+      <input type="search" id="filtro" placeholder="Filtrar por título...">
+      <button id="copiarLinks">Copiar todos os links</button>
+      <button id="copiarTabela">Copiar tabela (colar na planilha)</button>
+      <button class="primary" id="baixarCsv">Baixar CSV</button>
+      <label class="jp" title="Mostra a leitura dos kanjis e o romaji dos títulos em japonês (baixa um dicionário de ~17 MB na 1ª vez)"><input type="checkbox" id="jpOn" checked> Furigana e romaji</label>
+      <span class="jpst" id="jpStatus"></span>
+      <span class="count" id="contagem"></span>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-k="n">#</th>
+            <th data-k="title">Título</th>
+            <th data-k="date">Publicado</th>
+            <th data-k="dur">Duração</th>
+            <th data-k="views">Views</th>
+            <th>Link</th>
+          </tr>
+        </thead>
+        <tbody id="corpo"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const API = 'https://www.googleapis.com/youtube/v3/';
+  const $ = id => document.getElementById(id);
+  let videos = [];
+  let canalNome = 'canal';
+  let ordem = {k:'n', dir:1};
+  let canalId = '', oficial = null, thumbCanal = '', playlistIds = new Set(), parar = false, buscando = false;
+
+  // chave salva localmente (com proteção caso o storage falhe)
+  try { $('chave').value = localStorage.getItem('yt_api_key') || ''; } catch(e){}
+
+  function setStatus(msg, erro){
+    const s = $('status'); s.textContent = msg || ''; s.className = 'status' + (erro ? ' err' : '');
+  }
+  function setProgresso(p){
+    $('bar').style.display = p == null ? 'none' : 'block';
+    if (p != null) $('barfill').style.width = Math.round(p*100) + '%';
+  }
+
+  async function api(endpoint, params, key){
+    const u = new URL(API + endpoint);
+    Object.entries({...params, key}).forEach(([k,v]) => u.searchParams.set(k, v));
+    const r = await fetch(u.toString());
+    const j = await r.json();
+    if (!r.ok) throw new Error((j.error && j.error.message) || ('HTTP ' + r.status));
+    return j;
+  }
+
+  async function resolverCanal(entrada, key){
+    const txt = entrada.trim();
+    const part = 'snippet,contentDetails,statistics';
+    let m;
+    if ((m = txt.match(/(UC[\w-]{22})/))) {
+      const j = await api('channels', {part, id:m[1]}, key);
+      if (j.items && j.items[0]) return j.items[0];
+    }
+    if ((m = txt.match(/@([\w.\-]+)/))) {
+      const j = await api('channels', {part, forHandle:'@'+m[1]}, key);
+      if (j.items && j.items[0]) return j.items[0];
+    }
+    if ((m = txt.match(/youtube\.com\/user\/([\w.\-]+)/))) {
+      const j = await api('channels', {part, forUsername:m[1]}, key);
+      if (j.items && j.items[0]) return j.items[0];
+    }
+    // último recurso: handle sem @ ou nome do canal
+    if (!/\s/.test(txt) && !/\//.test(txt)) {
+      try {
+        const j = await api('channels', {part, forHandle:'@'+txt}, key);
+        if (j.items && j.items[0]) return j.items[0];
+      } catch(e){}
+    }
+    const q = txt.replace(/^https?:\/\/[^/]+\/?/, '') || txt;
+    const s = await api('search', {part:'snippet', type:'channel', q, maxResults:1}, key);
+    if (s.items && s.items[0]) {
+      const j = await api('channels', {part, id:s.items[0].snippet.channelId}, key);
+      if (j.items && j.items[0]) return j.items[0];
+    }
+    throw new Error('Canal não encontrado. Confira o @handle ou a URL.');
+  }
+
+  function duracaoSeg(iso){
+    const m = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || '');
+    if (!m) return 0;
+    return (+m[1]||0)*86400 + (+m[2]||0)*3600 + (+m[3]||0)*60 + (+m[4]||0);
+  }
+  function fmtDur(s){
+    if (!s) return '—';
+    const h = Math.floor(s/3600), mi = Math.floor(s%3600/60), se = s%60;
+    const p = n => String(n).padStart(2,'0');
+    return h ? `${h}:${p(mi)}:${p(se)}` : `${mi}:${p(se)}`;
+  }
+  const fmtData = iso => iso ? new Date(iso).toLocaleDateString('pt-BR') : '';
+  const fmtNum = n => n == null ? '—' : n.toLocaleString('pt-BR');
+
+  async function listar(){
+    const entrada = $('canal').value.trim();
+    const key = $('chave').value.trim();
+    if (!entrada) return setStatus('Informe o canal.', true);
+    if (!key) return setStatus('Informe a chave da API.', true);
+    try { localStorage.setItem('yt_api_key', key); } catch(e){}
+
+    $('buscar').disabled = true;
+    $('resultado').hidden = true;
+    videos = [];
+    setProgresso(0);
+    try {
+      setStatus('Localizando canal...');
+      const canal = await resolverCanal(entrada, key);
+      canalNome = canal.snippet.title;
+      const uploads = canal.contentDetails.relatedPlaylists.uploads;
+
+      // 1) IDs de todos os vídeos da playlist de uploads
+      let token = '', itens = [];
+      do {
+        const j = await api('playlistItems', {part:'snippet,contentDetails', playlistId:uploads, maxResults:50, ...(token?{pageToken:token}:{})}, key);
+        itens.push(...j.items);
+        token = j.nextPageToken || '';
+        setStatus(`Coletando vídeos... ${itens.length}${j.pageInfo ? ' de ' + j.pageInfo.totalResults : ''}`);
+        if (j.pageInfo && j.pageInfo.totalResults) setProgresso(Math.min(itens.length / j.pageInfo.totalResults, 1) * 0.6);
+      } while (token);
+
+      // 2) detalhes (duração, views) em lotes de 50
+      const ids = itens.map(i => i.contentDetails.videoId);
+      const det = {};
+      for (let i = 0; i < ids.length; i += 50){
+        const lote = ids.slice(i, i+50);
+        const j = await api('videos', {part:'contentDetails,statistics', id:lote.join(','), maxResults:50}, key);
+        j.items.forEach(v => det[v.id] = v);
+        setStatus(`Buscando detalhes... ${Math.min(i+50, ids.length)} de ${ids.length}`);
+        setProgresso(0.6 + 0.4 * Math.min((i+50)/ids.length, 1));
+      }
+
+      videos = itens.map((it, idx) => {
+        const id = it.contentDetails.videoId;
+        const d = det[id];
+        return {
+          n: idx + 1,
+          id,
+          title: it.snippet.title,
+          date: it.contentDetails.videoPublishedAt || it.snippet.publishedAt || '',
+          dur: d ? duracaoSeg(d.contentDetails.duration) : 0,
+          views: d && d.statistics && d.statistics.viewCount != null ? +d.statistics.viewCount : null,
+          url: 'https://www.youtube.com/watch?v=' + id
+        };
+      }).filter(v => v.title !== 'Private video' && v.title !== 'Deleted video');
+      canalId = canal.id;
+      oficial = canal.statistics && canal.statistics.videoCount != null ? +canal.statistics.videoCount : null;
+      thumbCanal = (canal.snippet.thumbnails && (canal.snippet.thumbnails.default || {}).url) || '';
+      playlistIds = new Set(videos.map(v => v.id));
+      lerExtras().forEach(v => videos.push(v));   // vídeos antigos buscados em sessões anteriores
+      ordem = {k:'n', dir:1};
+      $('resultado').hidden = false;
+      finalizar();
+      setStatus(`Pronto: ${videos.length} vídeos listados (do mais novo ao mais antigo).`);
+    } catch(e){
+      setStatus('Erro: ' + e.message, true);
+    } finally {
+      setProgresso(null);
+      $('buscar').disabled = false;
+    }
+  }
+
+  // ---- furigana e romaji dos títulos em japonês (Kuroshiro + kuromoji, no navegador; não usa cota da API) ----
+  const temJP = s => /[぀-ヿ㐀-鿿]/.test(s || '');
+  const KDICTS = (location.protocol.indexOf('http') === 0 ? ['dict/'] : []).concat(['https://thyagoa.github.io/karatube/dict/', 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/', 'https://unpkg.com/kuromoji@0.1.2/dict/']);
+  const lerJP = new Map();      // id do vídeo -> {fur: html seguro, rom: texto}
+  const celulas = new Map();    // id do vídeo -> célula do título na tabela
+  let kuro = null, kuroP = null, fila = [], rodando = false, obs = null;
+  const jpLigado = () => $('jpOn').checked;
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  function carregarScript(src){
+    return new Promise((ok, erro) => {
+      const s = document.createElement('script'); s.src = src; s.onload = ok;
+      s.onerror = () => erro(new Error('Falha ao baixar a biblioteca de japonês'));
+      document.head.appendChild(s);
+    });
+  }
+  function iniciarKuro(){
+    if (kuro) return Promise.resolve(kuro);
+    if (!kuroP) kuroP = (async () => {
+      $('jpStatus').textContent = 'Baixando biblioteca…';
+      if (!window.Kuroshiro) await carregarScript('https://cdn.jsdelivr.net/npm/kuroshiro@1.2.1/dist/kuroshiro.min.js');
+      if (!window.KuromojiAnalyzer) await carregarScript('https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js');
+      const K = window.Kuroshiro.default || window.Kuroshiro;
+      let ultimo;
+      for (let i = 0; i < KDICTS.length; i++){
+        try {
+          $('jpStatus').textContent = 'Baixando dicionário (~17 MB, só na 1ª vez)…';
+          const k = new K();
+          await Promise.race([k.init(new window.KuromojiAnalyzer({dictPath: KDICTS[i]})), new Promise((_, no) => setTimeout(() => no(new Error('O dicionário demorou demais')), 180000))]);
+          kuro = k; $('jpStatus').textContent = ''; return k;
+        } catch(e){ ultimo = e; }
+      }
+      throw ultimo || new Error('Não consegui carregar o dicionário');
+    })().catch(e => { kuroP = null; $('jpStatus').textContent = 'Furigana indisponível: ' + e.message; throw e; });
+    return kuroP;
+  }
+  // mantém só <ruby>, <rt>, <rp> e texto (o título vem da internet, nada de HTML solto)
+  function htmlSeguro(html){
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const ok = {RUBY:'ruby', RT:'rt', RP:'rp'};
+    const walk = n => Array.from(n.childNodes).map(c => c.nodeType === 3 ? esc(c.textContent) : c.nodeType === 1 ? (ok[c.tagName] ? '<' + ok[c.tagName] + '>' + walk(c) + '</' + ok[c.tagName] + '>' : walk(c)) : '').join('');
+    return walk(doc.body);
+  }
+  async function converter(v){
+    const k = await iniciarKuro();
+    const fur = await k.convert(v.title, {to:'hiragana', mode:'furigana'});
+    const rom = await k.convert(v.title, {to:'romaji', mode:'spaced', romajiSystem:'hepburn'});
+    return {fur: htmlSeguro(fur), rom: rom.replace(/\s{2,}/g, ' ').replace(/([(\[「『【])\s+/g, '$1').replace(/\s+([)\]」』】,.!?:;])/g, '$1').trim().replace(/^./, c => c.toUpperCase())};
+  }
+  function pintarTitulo(v, td){
+    const a = td.firstChild, r = lerJP.get(v.id);
+    if (!r){ a.textContent = v.title; const x = td.querySelector('.rom'); if (x) x.remove(); return; }
+    a.innerHTML = r.fur;
+    let x = td.querySelector('.rom');
+    if (!x){ x = document.createElement('span'); x.className = 'rom'; td.appendChild(x); }
+    x.textContent = r.rom;
+  }
+  async function rodarFila(){
+    if (rodando) return; rodando = true;
+    try {
+      while (fila.length && jpLigado()){
+        const v = fila.shift();
+        if (lerJP.has(v.id) || !celulas.has(v.id)) continue;
+        try { lerJP.set(v.id, await converter(v)); } catch(e){ break; }
+        const td = celulas.get(v.id); if (td && td.isConnected) pintarTitulo(v, td);
+        if (fila.length % 20 === 0) await new Promise(ok => setTimeout(ok, 0));   // deixa a página respirar
+      }
+    } finally { rodando = false; }
+  }
+  function observar(td, v){
+    if (!jpLigado() || !temJP(v.title) || lerJP.has(v.id)) return;
+    if (!obs) obs = new IntersectionObserver(es => es.forEach(e => {
+      if (!e.isIntersecting) return;
+      obs.unobserve(e.target); const v2 = e.target._v; if (v2 && !lerJP.has(v2.id)){ fila.push(v2); rodarFila(); }
+    }), {rootMargin:'400px'});
+    td._v = v; obs.observe(td);
+  }
+  $('jpOn').addEventListener('change', () => { try { localStorage.setItem('yt_jp', jpLigado() ? '1' : '0'); } catch(e){} fila = []; $('jpStatus').textContent = ''; render(); });
+  try { if (localStorage.getItem('yt_jp') === '0') $('jpOn').checked = false; } catch(e){}
+
+  function visiveis(){
+    const f = $('filtro').value.trim().toLowerCase();
+    let lista = f ? videos.filter(v => v.title.toLowerCase().includes(f) || ((lerJP.get(v.id) || {}).rom || '').toLowerCase().includes(f)) : videos.slice();
+    const {k, dir} = ordem;
+    lista.sort((a, b) => {
+      const x = a[k], y = b[k];
+      if (typeof x === 'string') return x.localeCompare(y, 'pt-BR') * dir;
+      return ((x ?? -1) - (y ?? -1)) * dir;
+    });
+    return lista;
+  }
+
+  function render(){
+    const lista = visiveis();
+    const corpo = $('corpo');
+    corpo.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    if (obs) obs.disconnect(); celulas.clear(); fila = [];
+    lista.forEach(v => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td class="num"></td><td class="t"><a target="_blank" rel="noopener"></a></td><td class="num"></td><td class="num"></td><td class="num"></td><td><button class="small">Copiar link</button></td>';
+      const td = tr.children;
+      td[0].textContent = v.n;
+      const a = td[1].firstChild; a.textContent = v.title; a.href = v.url;
+      celulas.set(v.id, td[1]);
+      if (jpLigado() && lerJP.has(v.id)) pintarTitulo(v, td[1]); else observar(td[1], v);
+      td[2].textContent = fmtData(v.date);
+      td[3].textContent = fmtDur(v.dur);
+      td[4].textContent = fmtNum(v.views);
+      const btn = td[5].firstChild;
+      btn.addEventListener('click', () => copiar(v.url, btn, 'Copiar link'));
+      frag.appendChild(tr);
+    });
+    corpo.appendChild(frag);
+    $('contagem').textContent = lista.length === videos.length ? `${videos.length} vídeos` : `${lista.length} de ${videos.length} vídeos`;
+  }
+
+  async function copiar(texto, btn, rotulo){
+    try {
+      await navigator.clipboard.writeText(texto);
+    } catch(e){
+      const ta = document.createElement('textarea');
+      ta.value = texto; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch(_){}
+      ta.remove();
+    }
+    btn.classList.add('copied'); btn.textContent = 'Copiado!';
+    setTimeout(() => { btn.classList.remove('copied'); btn.textContent = rotulo; }, 1400);
+  }
+
+  // evita que títulos iniciados por = + - @ virem fórmula na planilha
+  const seguro = s => /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
+  const dataISO = iso => iso ? iso.slice(0, 10) : '';
+  const cab = ['#', 'Título', 'Publicado', 'Duração', 'Views', 'Link'];
+  const linha = v => [v.n, seguro(v.title), dataISO(v.date), fmtDur(v.dur), v.views ?? '', v.url];
+
+  function tsv(){
+    const lim = s => String(s).replace(/[\t\r\n]+/g, ' ');
+    return [cab, ...visiveis().map(linha)].map(l => l.map(lim).join('\t')).join('\n');
+  }
+  function csv(){
+    const esc = s => { s = String(s); return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    return [cab, ...visiveis().map(linha)].map(l => l.map(esc).join(';')).join('\r\n');
+  }
+
+  // ---- vídeos antigos além do limite de ~20.000 da playlist de uploads ----
+  const extrasKey = () => 'yt_extra_' + canalId;
+  function lerExtras(){
+    try { return JSON.parse(localStorage.getItem(extrasKey()) || '[]'); } catch(e){ return []; }
+  }
+  function salvarExtras(){
+    try {
+      const extras = videos.filter(v => !playlistIds.has(v.id))
+        .map(v => ({id:v.id, title:v.title, date:v.date, dur:v.dur, views:v.views, url:v.url}));
+      localStorage.setItem(extrasKey(), JSON.stringify(extras));
+    } catch(e){}
+  }
+
+  function atualizarCab(){
+    $('chaninfo').innerHTML = (thumbCanal ? `<img src="${thumbCanal}" alt="">` : '') +
+      '<div><b></b><div style="color:var(--muted)"></div></div>';
+    $('chaninfo').querySelector('b').textContent = canalNome;
+    $('chaninfo').querySelector('div div').textContent =
+      `${fmtNum(videos.length)} vídeos listados` + (oficial != null ? ` · total oficial no canal: ${fmtNum(oficial)}` : '');
+
+    const falta = oficial != null ? oficial - videos.length : 0;
+    $('aviso').hidden = !(falta > 20);
+    if (falta > 20 && !buscando) {
+      const custo = Math.ceil(falta / 50) * 101;
+      $('avisoTxt').textContent =
+        `Faltam cerca de ${fmtNum(falta)} vídeos (a API corta a lista de uploads em ~20.000). ` +
+        `Buscar os mais antigos custa aproximadamente ${fmtNum(custo)} unidades de cota; o limite grátis é 10.000 por dia. ` +
+        `Se a cota acabar, o progresso fica salvo neste navegador e você continua no dia seguinte. ` +
+        `O total oficial pode incluir itens que a API não retorna, então uma pequena diferença é normal.`;
+      $('maisAntigos').textContent = 'Buscar vídeos mais antigos';
+      $('maisAntigos').disabled = false;
+    }
+  }
+
+  function finalizar(){
+    const vistos = new Set();
+    videos = videos.filter(v => !vistos.has(v.id) && vistos.add(v.id));
+    videos.sort((a, b) => (b.date || '').localeCompare(a.date || ''));   // mais novo primeiro
+    videos.forEach((v, i) => v.n = i + 1);
+    atualizarCab();
+    render();
+  }
+
+  async function buscarAntigos(){
+    const key = $('chave').value.trim();
+    if (!key || !canalId || buscando) return;
+    buscando = true; parar = false;
+    $('maisAntigos').disabled = true; $('parar').hidden = false;
+    let usada = 0, rodadas = 0;
+    try {
+      const existentes = new Set(videos.map(v => v.id));
+      let antes = videos.reduce((m, v) => v.date && Date.parse(v.date) < m ? Date.parse(v.date) : m, Date.now());
+      while (!parar && videos.length < oficial && rodadas++ < 400) {
+        let token = '', menor = antes, achouItens = false, novosRodada = 0;
+        do {
+          const j = await api('search', {
+            part:'snippet', channelId:canalId, type:'video', order:'date',
+            publishedBefore:new Date(antes).toISOString(), maxResults:50, ...(token ? {pageToken:token} : {})
+          }, key);
+          usada += 100;
+          const itens = j.items.filter(i => i.id && i.id.videoId);
+          if (!itens.length) { token = ''; break; }
+          achouItens = true;
+          const det = {};
+          const d = await api('videos', {part:'contentDetails,statistics', id:itens.map(i => i.id.videoId).join(','), maxResults:50}, key);
+          usada += 1;
+          d.items.forEach(v => det[v.id] = v);
+          itens.forEach(i => {
+            const id = i.id.videoId;
+            const t = Date.parse(i.snippet.publishedAt);
+            if (t < menor) menor = t;
+            if (existentes.has(id)) return;
+            existentes.add(id); novosRodada++;
+            const dv = det[id];
+            videos.push({
+              n:0, id, title:i.snippet.title, date:i.snippet.publishedAt,
+              dur: dv ? duracaoSeg(dv.contentDetails.duration) : 0,
+              views: dv && dv.statistics && dv.statistics.viewCount != null ? +dv.statistics.viewCount : null,
+              url:'https://www.youtube.com/watch?v=' + id
+            });
+          });
+          token = j.nextPageToken || '';
+          setStatus(`Buscando antigos... ${fmtNum(videos.length)} de ${fmtNum(oficial)} · cota usada nesta busca: ~${fmtNum(usada)}`);
+          $('chaninfo').querySelector('div div').textContent =
+            `${fmtNum(videos.length)} vídeos listados · total oficial no canal: ${fmtNum(oficial)}`;
+        } while (token && !parar);
+        salvarExtras();
+        if (!achouItens) break;
+        antes = menor < antes ? menor : antes - 1000;   // continua a partir do mais antigo encontrado
+        if (novosRodada === 0 && menor >= antes) break;
+      }
+      setStatus(parar ? `Interrompido em ${fmtNum(videos.length)} vídeos.` : `Busca concluída: ${fmtNum(videos.length)} vídeos listados.`);
+    } catch(e){
+      const cota = /quota/i.test(e.message);
+      setStatus(cota
+        ? `Cota diária esgotada com ${fmtNum(videos.length)} vídeos listados. O progresso foi salvo: amanhã, clique em Listar vídeos e depois em "Buscar vídeos mais antigos" para continuar.`
+        : 'Erro: ' + e.message, true);
+      salvarExtras();
+    } finally {
+      buscando = false;
+      $('parar').hidden = true;
+      finalizar();
+    }
+  }
+  $('maisAntigos').addEventListener('click', buscarAntigos);
+  $('parar').addEventListener('click', () => { parar = true; });
+
+  $('buscar').addEventListener('click', listar);
+  ['canal', 'chave'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') listar(); }));
+  $('filtro').addEventListener('input', render);
+  $('copiarLinks').addEventListener('click', e => copiar(visiveis().map(v => v.url).join('\n'), e.target, 'Copiar todos os links'));
+  $('copiarTabela').addEventListener('click', e => copiar(tsv(), e.target, 'Copiar tabela (colar na planilha)'));
+  $('baixarCsv').addEventListener('click', () => {
+    // BOM + ponto e vírgula: abre com acentos corretos no Excel pt-BR; o Google Planilhas também importa
+    const blob = new Blob(['﻿' + csv()], {type:'text/csv;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'videos-' + canalNome.replace(/[^\w\-]+/g, '_') + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  document.querySelectorAll('th[data-k]').forEach(th => th.addEventListener('click', () => {
+    const k = th.dataset.k;
+    ordem = {k, dir: ordem.k === k ? -ordem.dir : 1};
+    render();
+  }));
+})();
+</script>
+</body>
+</html>
