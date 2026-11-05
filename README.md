@@ -22,7 +22,7 @@ Não tem servidor: o catálogo fica no seu aparelho e em um **repositório priva
 ## 1. O que ele faz
 
 - **Códigos:** cada música tem um código `123456` e cada versão (vídeo, tom ou voz diferente) `123456-01`, `123456-02`…
-- **Cadastro rápido:** cole o link do YouTube e ele preenche o título e o canal. Dá para buscar capa, ano, origem (anime, jogo…) e grafias do cantor em bases online sem chave (MusicBrainz, AnimeThemes, AniList, Jikan, VocaDB, LRCLIB, iTunes, Deezer, Cover Art Archive, Wikidata/Wikipedia). Em **Ajustes › Fontes de dados** você liga e desliga cada uma, vendo que tipo de dado ela traz.
+- **Cadastro rápido:** cole o link do YouTube e ele preenche o título e o canal. Dá para buscar capa, ano, origem (anime, jogo…) e grafias do cantor em bases online sem chave (MusicBrainz, AnimeThemes, AniList, Jikan, VocaDB, LRCLIB, iTunes, Deezer, Cover Art Archive, Wikidata/Wikipedia). Em **Ajustes › Fontes de dados** você liga e desliga cada uma, vendo que tipo de dado ela traz. Quando uma fonte acha mais de um resultado (até 10), aparece um seletor **‹ 2 de 5 ›** para navegar entre eles antes de importar os campos.
 - **Romaji:** gera o título e a letra inicial em romaji a partir do japonês.
 - **Busca e filtros:** a busca olha título, cantor, letra, origem e versões; entre aspas (`"Hey Ho"`) procura a frase exata. Os filtros combinam idioma (vários), década, origem, voz, tipo de vídeo, tags, nota e status do link.
 - **Fila:** monte a fila da noite; a música sai da fila quando você marca "Cantei".

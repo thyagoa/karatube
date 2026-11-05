@@ -246,13 +246,15 @@ body{position:fixed;inset:0;width:100%}
 .vact{display:flex;align-items:center;gap:8px;padding:12px 14px 14px}
 .vact .vgo{flex:1;min-width:0;height:48px;border-radius:14px;padding:0 12px;white-space:nowrap}
 .vact .vb{width:48px;height:48px;border-radius:14px}
+.onav{min-height:56px;gap:10px}.onav .ib{width:40px;height:40px;border-radius:12px}
+.onnm{display:flex;flex-direction:column;min-width:0;font-size:12px;color:var(--muted)}.onnm b{font-size:13px;color:var(--text)}
 
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.12.1",APP_BUILD=1793571757,MGR=true;
+const APP_VERSION="1.13.0",APP_BUILD=1793916066,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -685,29 +687,39 @@ function jsonp(url, ms) {
 }
 const firstLines = (txt, n) => String(txt || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).slice(0, n).join('\n');
 
+// cada base pode devolver vários resultados da mesma consulta: { cands: [{ name, fields }] }; até MAX_CANDS
+const MAX_CANDS = 10;
+const cand = (fields, ...parts) => ({ name: parts.filter(Boolean).join(' · '), fields });
+
 const SEARCH = {
   async musicbrainz(q) {
-    const j = await mbThrottle(() => fetchJSON('https://musicbrainz.org/ws/2/recording?fmt=json&limit=3&query=' + encodeURIComponent(q)));
-    const r = (j.recordings || [])[0]; if (!r) return null;
-    const f = [titleField(r.title)];
-    uniq((r['artist-credit'] || []).map(a => a.name)).forEach(n => f.push({ key: 'alias', label: 'Cantor (grafia)', value: n }));
-    const y = (r['first-release-date'] || '').slice(0, 4); if (y) f.push({ key: 'year', label: 'Ano do primeiro lançamento', value: y });
-    return f;
+    const j = await mbThrottle(() => fetchJSON('https://musicbrainz.org/ws/2/recording?fmt=json&limit=' + MAX_CANDS + '&query=' + encodeURIComponent(q)));
+    return { cands: (j.recordings || []).map(r => {
+      const f = [titleField(r.title)]; const art = uniq((r['artist-credit'] || []).map(a => a.name));
+      art.forEach(n => f.push({ key: 'alias', label: 'Cantor (grafia)', value: n }));
+      const y = (r['first-release-date'] || '').slice(0, 4); if (y) f.push({ key: 'year', label: 'Ano do primeiro lançamento', value: y });
+      return cand(f, r.title, art[0], y);
+    }) };
   },
   async caa(q) {
-    const j = await mbThrottle(() => fetchJSON('https://musicbrainz.org/ws/2/release?fmt=json&limit=5&query=' + encodeURIComponent(q)));
-    const rel = (j.releases || []).find(x => x.id); if (!rel) return null;
-    return [{ key: 'art', label: 'Capa do álbum' + (rel.title ? ' · ' + rel.title : ''), value: 'https://coverartarchive.org/release/' + rel.id + '/front-500' }];
+    const j = await mbThrottle(() => fetchJSON('https://musicbrainz.org/ws/2/release?fmt=json&limit=' + MAX_CANDS + '&query=' + encodeURIComponent(q)));
+    return { cands: (j.releases || []).filter(x => x.id).map(rel => cand(
+      [{ key: 'art', label: 'Capa do álbum' + (rel.title ? ' · ' + rel.title : ''), value: 'https://coverartarchive.org/release/' + rel.id + '/front-500' }],
+      rel.title, ((rel['artist-credit'] || [])[0] || {}).name, (rel.date || '').slice(0, 4))) };
   },
   async deezer(q) {
-    const j = await jsonp('https://api.deezer.com/search?limit=1&output=jsonp&q=' + encodeURIComponent(q));
-    const r = (j.data || [])[0]; if (!r) return null;
-    const f = [titleField(r.title_short || r.title)];
-    if (r.artist && r.artist.name) f.push({ key: 'alias', label: 'Cantor (grafia)', value: r.artist.name });
-    const al = r.album || {};
-    if (al.id) { try { const a = await jsonp('https://api.deezer.com/album/' + al.id + '?output=jsonp'); if (a && a.release_date) f.push({ key: 'year', label: 'Ano', value: a.release_date.slice(0, 4) }); } catch (e) { } }
-    const cv = al.cover_xl || al.cover_big || al.cover_medium; if (cv) f.push({ key: 'art', label: 'Capa do álbum', value: cv });
-    return f;
+    const j = await jsonp('https://api.deezer.com/search?limit=' + MAX_CANDS + '&output=jsonp&q=' + encodeURIComponent(q));
+    const cands = (j.data || []).map(r => {
+      const f = [titleField(r.title_short || r.title)];
+      if (r.artist && r.artist.name) f.push({ key: 'alias', label: 'Cantor (grafia)', value: r.artist.name });
+      const al = r.album || {};
+      const cv = al.cover_xl || al.cover_big || al.cover_medium; if (cv) f.push({ key: 'art', label: 'Capa do álbum', value: cv });
+      return Object.assign(cand(f, r.title_short || r.title, (r.artist || {}).name, al.title), { albumId: al.id });
+    });
+    // o ano exige uma consulta ao álbum: só do primeiro resultado (os outros ficam sem ano, sem pedidos extras)
+    const first = cands[0];
+    if (first && first.albumId) { try { const a = await jsonp('https://api.deezer.com/album/' + first.albumId + '?output=jsonp'); if (a && a.release_date) first.fields.splice(2, 0, { key: 'year', label: 'Ano', value: a.release_date.slice(0, 4) }); } catch (e) { } }
+    return { cands };
   },
   async wikidata(q) {
     const W = 'https://www.wikidata.org/w/api.php?format=json&origin=*&';
@@ -728,60 +740,66 @@ const SEARCH = {
   },
   async animethemes(q) {
     const j = await fetchJSON('https://api.animethemes.moe/search?fields[search]=animethemes&include[animetheme]=anime.images,song.artists&q=' + encodeURIComponent(q));
-    const t = ((j.search || {}).animethemes || [])[0]; if (!t) return null;
-    const f = [];
-    if (t.song && t.song.title) f.push(titleField(t.song.title));
-    const art = ((t.song || {}).artists || [])[0]; if (art && art.name) f.push({ key: 'alias', label: 'Cantor (grafia)', value: art.name });
-    if (t.anime && t.anime.name) f.push({ key: 'origin', label: 'Origem', value: t.anime.name + (t.slug ? ' · ' + t.slug : '') });
-    if (t.anime && t.anime.year) f.push({ key: 'year', label: 'Ano', value: String(t.anime.year) });
-    const im = ((t.anime || {}).images || []); const img = im.find(x => /large/i.test(x.facet || '')) || im[0]; if (img && img.link) f.push({ key: 'art', label: 'Pôster do anime', value: img.link });
-    return f;
+    return { cands: ((j.search || {}).animethemes || []).map(t => {
+      const f = [];
+      if (t.song && t.song.title) f.push(titleField(t.song.title));
+      const art = ((t.song || {}).artists || [])[0]; if (art && art.name) f.push({ key: 'alias', label: 'Cantor (grafia)', value: art.name });
+      if (t.anime && t.anime.name) f.push({ key: 'origin', label: 'Origem', value: t.anime.name + (t.slug ? ' · ' + t.slug : '') });
+      if (t.anime && t.anime.year) f.push({ key: 'year', label: 'Ano', value: String(t.anime.year) });
+      const im = ((t.anime || {}).images || []); const img = im.find(x => /large/i.test(x.facet || '')) || im[0]; if (img && img.link) f.push({ key: 'art', label: 'Pôster do anime', value: img.link });
+      return cand(f, t.song && t.song.title, t.anime && t.anime.name + (t.slug ? ' ' + t.slug : ''));
+    }) };
   },
   async anilist(q) {
     const j = await fetchJSON('https://graphql.anilist.co', {
       method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ query: 'query($s:String){Media(search:$s,type:ANIME){title{romaji english native} seasonYear coverImage{large}}}', variables: { s: q } })
+      body: JSON.stringify({ query: 'query($s:String,$n:Int){Page(perPage:$n){media(search:$s,type:ANIME){title{romaji english native} seasonYear coverImage{large}}}}', variables: { s: q, n: MAX_CANDS } })
     });
-    const m = j && j.data && j.data.Media; if (!m) return null;
-    const f = [];
-    if (m.title.romaji) f.push({ key: 'origin', label: 'Origem (anime)', value: m.title.romaji });
-    if (m.seasonYear) f.push({ key: 'year', label: 'Ano', value: String(m.seasonYear) });
-    if (m.coverImage && m.coverImage.large) f.push({ key: 'art', label: 'Pôster do anime', value: m.coverImage.large });
-    return f;
+    return { cands: ((((j || {}).data || {}).Page || {}).media || []).map(m => {
+      const f = [];
+      if (m.title.romaji) f.push({ key: 'origin', label: 'Origem (anime)', value: m.title.romaji });
+      if (m.seasonYear) f.push({ key: 'year', label: 'Ano', value: String(m.seasonYear) });
+      if (m.coverImage && m.coverImage.large) f.push({ key: 'art', label: 'Pôster do anime', value: m.coverImage.large });
+      return cand(f, m.title.romaji || m.title.english || m.title.native, m.seasonYear);
+    }) };
   },
   async jikan(q) {
-    const j = await fetchJSON('https://api.jikan.moe/v4/anime?limit=1&q=' + encodeURIComponent(q));
-    const a = (j.data || [])[0]; if (!a) return null;
-    const f = [{ key: 'origin', label: 'Origem (anime)', value: a.title }];
-    if (a.year) f.push({ key: 'year', label: 'Ano', value: String(a.year) });
-    const ai = a.images && a.images.jpg && (a.images.jpg.large_image_url || a.images.jpg.image_url); if (ai) f.push({ key: 'art', label: 'Pôster do anime', value: ai });
-    return f;
+    const j = await fetchJSON('https://api.jikan.moe/v4/anime?limit=' + MAX_CANDS + '&q=' + encodeURIComponent(q));
+    return { cands: (j.data || []).map(a => {
+      const f = [{ key: 'origin', label: 'Origem (anime)', value: a.title }];
+      if (a.year) f.push({ key: 'year', label: 'Ano', value: String(a.year) });
+      const ai = a.images && a.images.jpg && (a.images.jpg.large_image_url || a.images.jpg.image_url); if (ai) f.push({ key: 'art', label: 'Pôster do anime', value: ai });
+      return cand(f, a.title, a.year);
+    }) };
   },
   async vocadb(q) {
-    const j = await fetchJSON('https://vocadb.net/api/songs?maxResults=1&fields=Names,MainPicture&lang=Default&query=' + encodeURIComponent(q));
-    const s = (j.items || [])[0]; if (!s) return null;
-    const f = []; const names = s.names || [];
-    const jp = names.find(n => n.language === 'Japanese'), ro = names.find(n => n.language === 'Romaji'), en = names.find(n => n.language === 'English');
-    if (jp) f.push({ key: 'title', label: 'Título original', value: jp.value });
-    if (ro || en) f.push({ key: 'roman', label: 'Título romanizado / traduzido', value: (ro || en).value });
-    if (s.artistString) f.push({ key: 'alias', label: 'Cantor (grafia)', value: s.artistString.split(' feat.')[0] });
-    if (s.publishDate) f.push({ key: 'year', label: 'Ano', value: s.publishDate.slice(0, 4) });
-    const mp = s.mainPicture && (s.mainPicture.urlOriginal || s.mainPicture.urlThumb); if (mp) f.push({ key: 'art', label: 'Imagem da música', value: mp });
-    return f;
+    const j = await fetchJSON('https://vocadb.net/api/songs?maxResults=' + MAX_CANDS + '&fields=Names,MainPicture&lang=Default&query=' + encodeURIComponent(q));
+    return { cands: (j.items || []).map(s => {
+      const f = []; const names = s.names || [];
+      const jp = names.find(n => n.language === 'Japanese'), ro = names.find(n => n.language === 'Romaji'), en = names.find(n => n.language === 'English');
+      if (jp) f.push({ key: 'title', label: 'Título original', value: jp.value });
+      if (ro || en) f.push({ key: 'roman', label: 'Título romanizado / traduzido', value: (ro || en).value });
+      const art = s.artistString ? s.artistString.split(' feat.')[0] : '';
+      if (art) f.push({ key: 'alias', label: 'Cantor (grafia)', value: art });
+      if (s.publishDate) f.push({ key: 'year', label: 'Ano', value: s.publishDate.slice(0, 4) });
+      const mp = s.mainPicture && (s.mainPicture.urlOriginal || s.mainPicture.urlThumb); if (mp) f.push({ key: 'art', label: 'Imagem da música', value: mp });
+      return cand(f, (ro || en || jp || {}).value, art);
+    }) };
   },
   async lrclib(q) {
     const j = await fetchJSON('https://lrclib.net/api/search?q=' + encodeURIComponent(q));
-    const r = (j || []).find(x => x.plainLyrics); if (!r) return null;
-    return [{ key: 'lyric', label: 'Letra inicial (5 linhas)', value: firstLines(r.plainLyrics, 5) }];
+    return { cands: (j || []).filter(x => x.plainLyrics).map(r => cand(
+      [{ key: 'lyric', label: 'Letra inicial (5 linhas)', value: firstLines(r.plainLyrics, 5) }], r.trackName, r.artistName, r.albumName)) };
   },
   async itunes(q) {
-    const j = await jsonp('https://itunes.apple.com/search?entity=song&limit=1&term=' + encodeURIComponent(q));
-    const r = (j.results || [])[0]; if (!r) return null;
-    const f = [titleField(r.trackName)];
-    if (r.artistName) f.push({ key: 'alias', label: 'Cantor (grafia)', value: r.artistName });
-    if (r.releaseDate) f.push({ key: 'year', label: 'Ano', value: r.releaseDate.slice(0, 4) });
-    if (r.artworkUrl100) f.push({ key: 'art', label: 'Capa do álbum', value: r.artworkUrl100.replace(/\/\d+x\d+(bb)?\.(jpg|png)$/, '/600x600bb.$2') });
-    return f;
+    const j = await jsonp('https://itunes.apple.com/search?entity=song&limit=' + MAX_CANDS + '&term=' + encodeURIComponent(q));
+    return { cands: (j.results || []).filter(r => r.trackName).map(r => {
+      const f = [titleField(r.trackName)];
+      if (r.artistName) f.push({ key: 'alias', label: 'Cantor (grafia)', value: r.artistName });
+      if (r.releaseDate) f.push({ key: 'year', label: 'Ano', value: r.releaseDate.slice(0, 4) });
+      if (r.artworkUrl100) f.push({ key: 'art', label: 'Capa do álbum', value: r.artworkUrl100.replace(/\/\d+x\d+(bb)?\.(jpg|png)$/, '/600x600bb.$2') });
+      return cand(f, r.trackName, r.artistName, (r.releaseDate || '').slice(0, 4));
+    }) };
   }
 };
 // consulta várias bases ao mesmo tempo; cada uma falha sozinha
@@ -790,7 +808,8 @@ async function searchBases(ids, q, onEach) {
   await Promise.all(ids.map(async id => {
     try {
       const f = await SEARCH[id](q);
-      out[id] = f && f.length ? { status: 'ok', fields: f } : { status: 'empty' };
+      const cands = (f && f.cands ? f.cands : f && f.length ? [{ name: '', fields: f }] : []).filter(c => c.fields && c.fields.length).slice(0, MAX_CANDS);
+      out[id] = cands.length ? { status: 'ok', cands, idx: 0, fields: cands[0].fields } : { status: 'empty' };
     } catch (e) {
       out[id] = { status: 'error', msg: id === 'vocadb' ? 'O VocaDB pode bloquear acessos de sites novos. Tente outra base.' : 'Não consegui falar com esta base (sem internet ou ela bloqueou o acesso).' };
     }
@@ -2058,17 +2077,25 @@ function onlineTag(f, t, seen) {
   const cur = String(d[f.key] || '').trim();
   return cur ? (norm(cur) === nv ? { tag: 'igual ao atual', on: false } : { tag: 'já preenchido', on: false }) : { tag: 'campo vazio', on: true };
 }
+// seletor de resultados da mesma base (só aparece quando há mais de um)
+function onlineNav(b, r) {
+  if (r.cands.length < 2) return '';
+  const nm = r.cands[r.idx].name;
+  return `<div class="crow onav"><button class="ib bd" data-act="onNav" data-id="${b.id}" data-d="-1" aria-label="Resultado anterior">${ic('back', 20)}</button>
+    <span class="fx1 onnm"><b>${r.idx + 1} de ${r.cands.length}</b>${nm ? `<span class="ell jp">${esc(nm)}</span>` : ''}</span>
+    <button class="ib bd" data-act="onNav" data-id="${b.id}" data-d="1" aria-label="Próximo resultado" style="transform:scaleX(-1)">${ic('back', 20)}</button></div>`;
+}
 function onlineGroup(b, t) {
   const r = t.res[b.id];
   let inner;
   if (!r) inner = `<div class="crow"><span class="spin"></span><span class="muted" style="font-size:13px">Pesquisando…</span></div>`;
   else if (r.status === 'empty') inner = `<div class="crow muted" style="font-size:13px;line-height:1.4">Nada encontrado. Dá para digitar ou colar direto no cadastro.</div>`;
   else if (r.status === 'error') inner = `<div class="crow muted" style="font-size:13px;line-height:1.4">${esc(r.msg)}</div>`;
-  else inner = r.fields.map((f, i) => {
+  else inner = onlineNav(b, r) + r.fields.map((f, i) => {
     const k = b.id + ':' + i; const tg = r.tags[i];
     return `<label class="crow" style="min-height:50px"><input type="checkbox" data-change="onChk" data-k="${k}" ${t.chk[k] ? 'checked' : ''} aria-label="${esc(f.label)}"><span class="fx1"><span class="muted" style="display:block;font-size:12px">${esc(f.label)}</span>${f.key === 'art' ? `<img src="${esc(f.value)}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:10px;margin-top:4px;background:var(--surface2)" onerror="this.outerHTML='<span class=&quot;muted&quot; style=&quot;font-size:12px&quot;>imagem indisponível</span>'">` : `<b style="display:block;font-size:15px;${f.key === 'lyric' ? 'white-space:pre-line' : 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis'}" class="jp">${esc(f.value)}</b>`}</span><span class="muted" style="font-size:11px;font-weight:700;flex:none">${tg}</span></label>`;
   }).join('');
-  const cnt = !r ? '' : r.status === 'ok' ? '1 resultado' : r.status === 'empty' ? 'sem resultado' : 'erro';
+  const cnt = !r ? '' : r.status === 'ok' ? r.cands.length + (r.cands.length === 1 ? ' resultado' : ' resultados') : r.status === 'empty' ? 'sem resultado' : 'erro';
   return `<div><div class="gh"><b>${b.name}</b><span>${cnt}</span></div><div class="group">${inner}</div></div>`;
 }
 SHEETS.online = t => {
@@ -2401,6 +2428,12 @@ const ACT = {
     searchBases(t.ran, t.q.trim(), (id, r) => { t.res[id] = r; onlineRefresh(t); if (sh() === t) render(); });
   },
   onBack() { sh().step = 'bases'; render(); },
+  onNav(d) { // outro resultado da mesma base: refaz as marcações só desta base
+    const t = sh(); const r = t.res[d.id]; if (!r || r.status !== 'ok') return;
+    r.idx = (r.idx + (+d.d) + r.cands.length) % r.cands.length; r.fields = r.cands[r.idx].fields;
+    Object.keys(t.chk).forEach(k => { if (k.startsWith(d.id + ':')) delete t.chk[k]; });
+    onlineRefresh(t); render();
+  },
   onImport() {
     const t = sh(); const x = ui.draft; let n = 0;
     t.ran.forEach(id => { const r = t.res[id]; if (!r || r.status !== 'ok') return; r.fields.forEach((f, i) => {
