@@ -256,7 +256,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.14.0",APP_BUILD=1793917444,MGR=false;
+const APP_VERSION="1.16.0",APP_BUILD=1793922366,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -2522,7 +2522,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener && matchMedia('(pref
 (async function init() {
   await loadState();
   ui.sort = D.settings.sort || 'code'; ui.dir = D.settings.dir || 'asc';
-  setWide(); render();
+  setWide(); render(); window.APP_READY = true;
   if (!MGR && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { }); if (!MGR && /^https?:$/.test(location.protocol) && navigator.onLine) setTimeout(() => checkUpdate(true), 3000);
   setTimeout(() => ghSyncNow(false), 3500);
 })();

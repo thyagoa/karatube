@@ -254,7 +254,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.14.0",APP_BUILD=1793917444,MGR=true;
+const APP_VERSION="1.16.0",APP_BUILD=1793922366,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -2520,7 +2520,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener && matchMedia('(pref
 (async function init() {
   await loadState();
   ui.sort = D.settings.sort || 'code'; ui.dir = D.settings.dir || 'asc';
-  setWide(); render();
+  setWide(); render(); window.APP_READY = true;
   if (!MGR && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { }); if (!MGR && /^https?:$/.test(location.protocol) && navigator.onLine) setTimeout(() => checkUpdate(true), 3000);
   setTimeout(() => ghSyncNow(false), 3500);
 })();
@@ -2542,7 +2542,10 @@ function createDev(name) {
   D.settings.dev = { id: 'd' + Math.random().toString(36).slice(2, 10) + now().toString(36), name: (name || '').trim() || 'Computador', slot: 2 };
 }
 // no computador a gravação vai logo para o GitHub (1,5 s depois de salvar)
-function syncHook(keys) { if (SYNC.applying || !ghOn()) return; if (keys.some(k => ['songs', 'versions', 'lists', 'history'].includes(k))) syncSoon(1500); }
+function syncHook(keys) {
+  if (keys.some(k => k === 'songs' || k === 'versions')) { try { if (window.BC_YT) BC_YT.postMessage({ tipo: 'catalogo-atualizado' }); } catch (e) { } }
+  if (SYNC.applying || !ghOn()) return; if (keys.some(k => ['songs', 'versions', 'lists', 'history'].includes(k))) syncSoon(1500);
+}
 
 /* ---------- esqueleto ---------- */
 function rail() {
@@ -2661,6 +2664,32 @@ ACT.frGo = function () {
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S') && ui.tab === 'cad' && ui.draft) { e.preventDefault(); saveDraft(); }
 });
+
+/* ---------- recebe dados do listador de canais (uma música por vez; nada é gravado sem você salvar) ---------- */
+function receberDoListador(p) {
+  if (!p || !p.url || !D.settings.dev) return false;
+  const old = ui.draft; const hadWork = old && old.mode === 'new' && (old.title || old.url || old.singer);
+  startNew(); const d = ui.draft;
+  d.url = String(p.url); d.title = String(p.titulo || ''); d.roman = String(p.roman || ''); d.singer = String(p.cantor || '');
+  d.aliases = (p.aliases || []).map(String).filter(x => x && x !== d.singer);
+  if (p.idioma && langList().includes(p.idioma)) d.lang = p.idioma;
+  render(); onUrlInput();
+  toast(hadWork ? 'Dados do listador recebidos (o rascunho anterior foi substituído). Confira música e cantor.' : 'Dados do listador recebidos. Confira música e cantor antes de salvar.', { ms: 6000 });
+  return true;
+}
+try {
+  window.BC_YT = new BroadcastChannel('karatube-youtube');
+  BC_YT.onmessage = e => { const m = e.data || {}; if (m.tipo === 'cadastrar' && receberDoListador(m.dados)) { BC_YT.postMessage({ tipo: 'cadastrar-ok', id: m.id }); try { window.focus(); } catch (er) { } } };
+} catch (e) { }
+(async function () {   // aberto pelo listador (outra aba): os dados vêm no endereço
+  const m = /^#cadastrar=(.+)$/.exec(location.hash || ''); if (!m) return;
+  for (let i = 0; i < 100 && !window.APP_READY; i++) await new Promise(r => setTimeout(r, 100));
+  try {
+    const bin = atob(m[1].replace(/-/g, '+').replace(/_/g, '/')); const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    receberDoListador(JSON.parse(new TextDecoder().decode(bytes)));
+  } catch (e) { }
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { }
+})();
 
 </script>
 </body>

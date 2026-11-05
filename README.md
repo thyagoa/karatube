@@ -75,6 +75,8 @@ Uma página à parte, `listador.html` (<https://thyagoa.github.io/karatube/lista
 - Lista do mais novo ao mais antigo, com título, data, duração, views e link; filtro por título, copiar link por linha, copiar todos os links, copiar tabela para planilha e baixar CSV.
 - Títulos em **japonês** aparecem com **furigana** sobre os kanjis e o **romaji** embaixo; o filtro também acha pelo romaji. A caixinha "Furigana e romaji" liga e desliga (a primeira vez baixa o dicionário, ~17 MB).
 - Canais muito grandes (mais de ~20.000 vídeos): um botão busca os mais antigos além do limite da API.
+- **Ligação com o gerenciador:** cada vídeo mostra, na coluna **Catálogo**, o selo **✓ código** se já está cadastrado no KaraTube, ou um botão **Cadastrar**. O botão abre a tela de nova música do gerenciador já preenchida (URL, sugestão de música e cantor a partir do título, romaji e idioma), para você conferir e salvar; o listador não cria música sozinho. O gerenciador precisa estar no mesmo site (GitHub Pages) e ligado ao GitHub. O filtro **Só não cadastrados** esconde o que já está no catálogo.
+- **Cache no GitHub:** os canais já baixados ficam guardados no seu repositório privado de dados (pasta `youtube/`), com o mesmo repositório e token do KaraTube. Em qualquer aparelho, o seletor **"Canais já baixados"** abre o canal sem gastar cota e sem precisar da chave da API. A chave só é necessária para listar ou atualizar, e pode ficar só no computador. **Atualizar** lê só os vídeos novos (cerca de 3 unidades de cota); **Recarregar tudo** refaz a listagem completa, pedindo confirmação.
 
 ## 4. Montar o seu próprio KaraTube
 

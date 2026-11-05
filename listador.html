@@ -59,6 +59,8 @@
   .hist summary{cursor:pointer}
   .hist ul{margin:8px 0 0;padding-left:18px}
   .hist li{margin-bottom:4px}
+  select{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+  .selo.ok{display:inline-block;padding:2px 8px;border-radius:10px;background:var(--ok-bg);color:var(--ok);font-size:.78rem;font-weight:600;white-space:nowrap}
   .count{color:var(--muted);font-size:.9rem;margin-left:auto}
   .jp{display:flex;align-items:center;gap:6px;margin:0;font-size:.85rem;color:var(--text);white-space:nowrap;cursor:pointer}
   .tools .jp input{width:auto;flex:none;min-width:0}
@@ -71,11 +73,13 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Listador de vídeos de canal do YouTube <span class="ver">v1.4</span></h1>
+  <h1>Listador de vídeos de canal do YouTube <span class="ver">v1.6</span></h1>
   <p class="sub">Informe o canal e receba todos os vídeos com link, botão de copiar e exportação para planilha.</p>
   <details class="hist">
     <summary>Histórico de versões</summary>
     <ul>
+      <li><b>v1.6</b> (05/11/2026): coluna "Catálogo": selo "✓ código" nos vídeos já cadastrados no KaraTube (lido do GitHub e do gerenciador) e botão "Cadastrar" que abre a tela de nova música do gerenciador já preenchida (URL, sugestão de música e cantor, romaji); filtro "Só não cadastrados".</li>
+      <li><b>v1.5</b> (05/11/2026): cache dos canais no GitHub (repositório de dados) e neste navegador; seletor de canais já baixados que abre sem usar a API; "Atualizar" que lê só o que é novo (para no primeiro vídeo conhecido); "Recarregar tudo" com confirmação; busca dos antigos salva a cada rodada e continua no dia seguinte; vários aparelhos juntam os vídeos pelo id.</li>
       <li><b>v1.4</b> (05/11/2026): títulos em japonês aparecem com furigana sobre os kanjis e o romaji embaixo; o filtro também acha pelo romaji.</li>
       <li><b>v1.3</b> (05/11/2026): número da versão e histórico de alterações na página.</li>
       <li><b>v1.2</b> (05/11/2026): total oficial do canal ao lado da contagem; lista do mais novo ao mais antigo; botão para buscar vídeos além do limite de ~20.000, com progresso salvo no navegador.</li>
@@ -83,6 +87,11 @@
       <li><b>v1.0</b> (05/11/2026): primeira versão: lista por canal, copiar link, copiar tabela, CSV, filtro e ordenação.</li>
     </ul>
   </details>
+
+  <div class="card" id="cacheCard" hidden>
+    <label for="canaisSel">Canais já baixados (abrem sem gastar cota da API)</label>
+    <select id="canaisSel"></select>
+  </div>
 
   <div class="card">
     <div class="row">
@@ -105,12 +114,32 @@
         <li>A chave fica salva só neste navegador. A cota gratuita (10.000 unidades/dia) dá para listar canais com milhares de vídeos.</li>
       </ol>
     </details>
+    <details>
+      <summary>Cache no GitHub (repositório de dados)</summary>
+      <p style="margin:8px 0 6px">Guarda os canais já baixados no seu repositório privado, para outros aparelhos abrirem sem gastar cota nem precisar da chave. Se o gerenciador ou o app já estão ligados ao GitHub neste site, a configuração deles é usada sozinha.</p>
+      <div class="row" style="grid-template-columns:1fr 1fr auto">
+        <div><label for="ghRepo">Repositório (usuario/repositorio)</label><input type="text" id="ghRepo" placeholder="usuario/karatube-dados" autocomplete="off"></div>
+        <div><label for="ghToken">Token do GitHub</label><input type="password" id="ghToken" placeholder="github_pat_…" autocomplete="off"></div>
+        <button id="ghSalvar">Conectar</button>
+      </div>
+      <div class="jpst" id="ghOrigem" style="margin-top:6px"></div>
+    </details>
+    <div class="jpst" id="ghStatus" style="margin-top:8px"></div>
+    <div class="jpst" id="catStatus" style="margin-top:4px"></div>
     <div class="bar" id="bar"><i id="barfill"></i></div>
     <div class="status" id="status"></div>
   </div>
 
   <div class="card" id="resultado" hidden>
     <div class="chan" id="chaninfo" style="margin-bottom:14px"></div>
+    <div class="tools">
+      <button class="primary" id="atualizar" title="Lê só os vídeos novos (1 a 5 unidades de cota)">Atualizar</button>
+      <button id="recarregar">Recarregar tudo</button>
+    </div>
+    <div class="aviso" id="recConfirma" hidden>
+      <div id="recTxt"></div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="primary" id="recSim">Sim, recarregar tudo</button><button id="recNao">Cancelar</button></div>
+    </div>
     <div class="aviso" id="aviso" hidden>
       <div id="avisoTxt"></div>
       <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
@@ -124,6 +153,7 @@
       <button id="copiarTabela">Copiar tabela (colar na planilha)</button>
       <button class="primary" id="baixarCsv">Baixar CSV</button>
       <label class="jp" title="Mostra a leitura dos kanjis e o romaji dos títulos em japonês (baixa um dicionário de ~17 MB na 1ª vez)"><input type="checkbox" id="jpOn" checked> Furigana e romaji</label>
+      <label class="jp" title="Esconde os vídeos que já estão no catálogo do KaraTube"><input type="checkbox" id="soNovos"> Só não cadastrados</label>
       <span class="jpst" id="jpStatus"></span>
       <span class="count" id="contagem"></span>
     </div>
@@ -137,6 +167,7 @@
             <th data-k="dur">Duração</th>
             <th data-k="views">Views</th>
             <th>Link</th>
+            <th>Catálogo</th>
           </tr>
         </thead>
         <tbody id="corpo"></tbody>
@@ -220,7 +251,7 @@
   const fmtData = iso => iso ? new Date(iso).toLocaleDateString('pt-BR') : '';
   const fmtNum = n => n == null ? '—' : n.toLocaleString('pt-BR');
 
-  async function listar(){
+  async function listar(completo){
     const entrada = $('canal').value.trim();
     const key = $('chave').value.trim();
     if (!entrada) return setStatus('Informe o canal.', true);
@@ -235,6 +266,13 @@
       setStatus('Localizando canal...');
       const canal = await resolverCanal(entrada, key);
       canalNome = canal.snippet.title;
+      uploadsId = canal.contentDetails.relatedPlaylists.uploads;
+      // canal já baixado: só atualiza o que é novo (a menos que peçam "Recarregar tudo")
+      if (completo !== true && canaisConhecidos().some(c => c.id === canal.id)){
+        if (canalId !== canal.id || !videos.length) await abrirCanal(canal.id);
+        setProgresso(null); $('buscar').disabled = false;
+        return atualizar();
+      }
       const uploads = canal.contentDetails.relatedPlaylists.uploads;
 
       // 1) IDs de todos os vídeos da playlist de uploads
@@ -275,11 +313,18 @@
       oficial = canal.statistics && canal.statistics.videoCount != null ? +canal.statistics.videoCount : null;
       thumbCanal = (canal.snippet.thumbnails && (canal.snippet.thumbnails.default || {}).url) || '';
       playlistIds = new Set(videos.map(v => v.id));
-      lerExtras().forEach(v => videos.push(v));   // vídeos antigos buscados em sessões anteriores
+      lerExtras().forEach(v => videos.push(v));   // vídeos antigos buscados em versões anteriores (localStorage)
+      try { localStorage.removeItem(extrasKey()); } catch(e){}
+      try {   // vídeos antigos já guardados no cache continuam valendo ao recarregar
+        const ant = await localGet('canal:' + canal.id);
+        if (ant) ant.videos.filter(c => c.o === 'b').forEach(c => { if (!playlistIds.has(c.i)) videos.push(expandir(c)); });
+        shasCanal = (ant && ant.shas) || {};
+      } catch(e){}
       ordem = {k:'n', dir:1};
       $('resultado').hidden = false;
       finalizar();
       setStatus(`Pronto: ${videos.length} vídeos listados (do mais novo ao mais antigo).`);
+      guardarCanal(completo === true);
     } catch(e){
       setStatus('Erro: ' + e.message, true);
     } finally {
@@ -369,7 +414,8 @@
 
   function visiveis(){
     const f = $('filtro').value.trim().toLowerCase();
-    let lista = f ? videos.filter(v => v.title.toLowerCase().includes(f) || ((lerJP.get(v.id) || {}).rom || '').toLowerCase().includes(f)) : videos.slice();
+    let lista = $('soNovos').checked ? videos.filter(v => !catVids.has(v.id)) : videos;
+    lista = f ? lista.filter(v => v.title.toLowerCase().includes(f) || ((lerJP.get(v.id) || {}).rom || '').toLowerCase().includes(f)) : lista.slice();
     const {k, dir} = ordem;
     lista.sort((a, b) => {
       const x = a[k], y = b[k];
@@ -384,14 +430,14 @@
     const corpo = $('corpo');
     corpo.innerHTML = '';
     const frag = document.createDocumentFragment();
-    if (obs) obs.disconnect(); celulas.clear(); fila = [];
+    if (obs) obs.disconnect(); celulas.clear(); celCat.clear(); fila = [];
     lista.forEach(v => {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td class="num"></td><td class="t"><a target="_blank" rel="noopener"></a></td><td class="num"></td><td class="num"></td><td class="num"></td><td><button class="small">Copiar link</button></td>';
+      tr.innerHTML = '<td class="num"></td><td class="t"><a target="_blank" rel="noopener"></a></td><td class="num"></td><td class="num"></td><td class="num"></td><td><button class="small">Copiar link</button></td><td class="cat"></td>';
       const td = tr.children;
       td[0].textContent = v.n;
       const a = td[1].firstChild; a.textContent = v.title; a.href = v.url;
-      celulas.set(v.id, td[1]);
+      celulas.set(v.id, td[1]); celCat.set(v.id, td[6]); porId.set(v.id, v); pintarCat(v, td[6]);
       if (jpLigado() && lerJP.has(v.id)) pintarTitulo(v, td[1]); else observar(td[1], v);
       td[2].textContent = fmtData(v.date);
       td[3].textContent = fmtDur(v.dur);
@@ -433,17 +479,365 @@
     return [cab, ...visiveis().map(linha)].map(l => l.map(esc).join(';')).join('\r\n');
   }
 
+  // ---- cache dos canais: GitHub (repositório de dados) + cópia local (IndexedDB) ----
+  // youtube/indice.json  -> lista de canais; youtube/<canal>/<ano>.json -> vídeos do ano (compacto)
+  let uploadsId = '', metaCanal = null, indiceRemoto = [], indiceLocal = [];
+  const GHC = {repo:'', token:'', origem:''};
+  const aguardar = ms => new Promise(ok => setTimeout(ok, ms));
+
+  function idbDe(nome, store){
+    return new Promise((ok, erro) => {
+      const r = indexedDB.open(nome, store === 'kv-local' ? 1 : undefined);
+      if (store === 'kv-local') r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => ok(r.result); r.onerror = () => erro(r.error);
+    });
+  }
+  const idbGet = (db, k) => new Promise((ok, erro) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => ok(q.result); q.onerror = () => erro(q.error); });
+  const idbPut = (db, k, v) => new Promise((ok, erro) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = ok; t.onerror = () => erro(t.error); });
+  let dbLocal = null;
+  async function local(){ if (!dbLocal) dbLocal = await idbDe('karatube-youtube', 'kv-local'); return dbLocal; }
+  async function localGet(k){ try { return await idbGet(await local(), k); } catch(e){ return undefined; } }
+  async function localPut(k, v){ try { await idbPut(await local(), k, v); } catch(e){} }
+
+  // repositório e token: os salvos aqui ou os que o gerenciador/app já guardaram neste site
+  async function configDoApp(){
+    let nomes = [];
+    try { nomes = (await indexedDB.databases()).map(d => d.name); } catch(e){ return null; }
+    for (const n of ['karatube-gerenciador', 'karatube']){
+      if (!nomes.includes(n)) continue;
+      try {
+        const db = await new Promise((ok, erro) => { const r = indexedDB.open(n); r.onsuccess = () => ok(r.result); r.onerror = () => erro(r.error); });
+        let s = null;
+        if (db.objectStoreNames.contains('kv')) s = await idbGet(db, 'settings');
+        db.close();
+        if (s && s.gh && s.gh.repo && s.gh.token) return {repo:s.gh.repo, token:s.gh.token, origem:n === 'karatube' ? 'do app' : 'do gerenciador'};
+      } catch(e){}
+    }
+    return null;
+  }
+  async function iniciarConfig(){
+    let c = null;
+    try { c = JSON.parse(localStorage.getItem('yt_gh') || 'null'); } catch(e){}
+    if (c && c.repo && c.token) Object.assign(GHC, {repo:c.repo, token:c.token, origem:'salvo aqui'});
+    else { c = await configDoApp(); if (c) Object.assign(GHC, c); }
+    $('ghRepo').value = GHC.repo || ''; $('ghToken').value = GHC.origem === 'salvo aqui' ? GHC.token : '';
+    $('ghOrigem').textContent = GHC.repo ? 'Usando ' + GHC.repo + ' (configuração ' + GHC.origem + ').' : 'Sem repositório: o cache fica só neste navegador.';
+  }
+  const ghOn = () => !!(GHC.repo && GHC.token);
+
+  async function gh(caminho, opc){
+    const o = opc || {};
+    const r = await fetch('https://api.github.com/repos/' + GHC.repo + '/' + caminho, {
+      method:o.method || 'GET', body:o.body,
+      headers:{Authorization:'Bearer ' + GHC.token, Accept:o.raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json', ...(o.body ? {'Content-Type':'application/json'} : {})}
+    });
+    if (r.status === 404 && o.ok404) return null;
+    if (!r.ok){
+      const msg = r.status === 401 ? 'token inválido ou expirado' : r.status === 403 ? 'sem permissão (Contents: Read and write) ou limite do GitHub' : r.status === 404 ? 'repositório não encontrado' : r.status === 409 || r.status === 422 ? 'conflito' : 'HTTP ' + r.status;
+      const e = new Error(msg); e.status = r.status; throw e;
+    }
+    return o.raw ? r.text() : r.json();
+  }
+  const bytes = s => new TextEncoder().encode(s);
+  function b64(s){ const b = bytes(s); let t = ''; for (let i = 0; i < b.length; i += 8192) t += String.fromCharCode.apply(null, b.subarray(i, i + 8192)); return btoa(t); }
+  async function shaGit(texto){   // o mesmo hash que o GitHub calcula para o arquivo
+    const c = bytes(texto), h = bytes('blob ' + c.length + String.fromCharCode(0));
+    const t = new Uint8Array(h.length + c.length); t.set(h); t.set(c, h.length);
+    return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1', t))).map(x => x.toString(16).padStart(2, '0')).join('');
+  }
+  async function ghLerTexto(caminho){ return gh('contents/' + caminho, {raw:true, ok404:true}); }
+  async function ghGravar(caminho, texto, msg, cache){   // cache: listagens de pasta já lidas nesta rodada
+    const pasta = caminho.split('/').slice(0, -1).join('/');
+    for (let t = 0; t < 4; t++){
+      if (!cache[pasta] || t > 0) cache[pasta] = (await gh('contents/' + pasta, {ok404:true})) || [];
+      const f = Array.isArray(cache[pasta]) ? cache[pasta].find(x => x.path === caminho) : null;
+      if (f && f.sha === await shaGit(texto)) return false;
+      try {
+        const r = await gh('contents/' + caminho, {method:'PUT', body:JSON.stringify({message:msg, content:b64(texto), ...(f ? {sha:f.sha} : {})})});
+        if (r && r.content && Array.isArray(cache[pasta])){ const i = cache[pasta].findIndex(x => x.path === caminho); if (i >= 0) cache[pasta][i] = r.content; else cache[pasta].push(r.content); }
+        return true;
+      } catch(e){ if ((e.status === 409 || e.status === 422) && t < 3){ await aguardar(400 * (t + 1)); continue; } throw e; }
+    }
+  }
+
+  const anoDe = v => (v.date || '').slice(0, 4) || '0000';
+  const compacto = v => ({i:v.id, t:v.title, d:v.date, s:v.dur, v:v.views, o:playlistIds.has(v.id) ? 'u' : 'b'});
+  const expandir = c => ({n:0, id:c.i, title:c.t, date:c.d, dur:c.s, views:c.v, url:'https://www.youtube.com/watch?v=' + c.i, o:c.o});
+
+  function montarMeta(){
+    const anos = {}; videos.forEach(v => { const a = anoDe(v); anos[a] = (anos[a] || 0) + 1; });
+    return {id:canalId, nome:canalNome, thumb:thumbCanal, uploads:uploadsId, oficial, total:videos.length, anos, atualizadoEm:new Date().toISOString()};
+  }
+  function setGh(msg, erro){ const e = $('ghStatus'); e.textContent = msg || ''; e.style.color = erro ? 'var(--accent)' : ''; }
+
+  // grava o canal na cópia local e (se configurado) no GitHub, só os anos que mudaram.
+  // Se outro aparelho mexeu no mesmo ano desde a última leitura, junta pelo id do vídeo em vez de sobrescrever.
+  let shasCanal = {};
+  async function guardarCanal(substituir){
+    if (!canalId || !videos.length) return;
+    const meta = montarMeta(); metaCanal = meta;
+    const porAno = {}; videos.forEach(v => (porAno[anoDe(v)] = porAno[anoDe(v)] || []).push(compacto(v)));
+    atualizarIndice(indiceLocal, meta); await localPut('indice', indiceLocal);
+    await localPut('canal:' + canalId, {meta, videos:Object.values(porAno).flat(), shas:shasCanal});
+    if (!ghOn()){ preencherSeletor(); return; }
+    try {
+      setGh('Salvando no GitHub…');
+      let mudou = 0, juntou = 0; const cache = {}, pasta = 'youtube/' + canalId;
+      cache[pasta] = (await gh('contents/' + pasta, {ok404:true})) || [];
+      for (const ano of Object.keys(porAno).sort()){
+        const caminho = pasta + '/' + ano + '.json'; let lista = porAno[ano];
+        const noRemoto = cache[pasta].find(x => x.path === caminho);
+        if (!substituir && noRemoto && noRemoto.sha !== shasCanal[ano]){   // mudou em outro aparelho: junta
+          const txt = await ghLerTexto(caminho); let rem = [];
+          try { rem = JSON.parse(txt || '[]'); } catch(e){}
+          const mapa = new Map(rem.map(c => [c.i, c])); const meus = new Set(lista.map(c => c.i));
+          lista.forEach(c => mapa.set(c.i, c));
+          const soRemoto = rem.filter(c => !meus.has(c.i));
+          if (soRemoto.length){ juntou += soRemoto.length; videos.push(...soRemoto.map(expandir)); soRemoto.forEach(c => { if (c.o === 'u') playlistIds.add(c.i); }); }
+          lista = Array.from(mapa.values());
+        }
+        lista = lista.slice().sort((a, b) => (b.d || '').localeCompare(a.d || ''));
+        if (await ghGravar(caminho, JSON.stringify(lista), 'youtube: ' + canalNome + ' ' + ano, cache)) mudou++;
+        const f = cache[pasta].find(x => x.path === caminho); if (f) shasCanal[ano] = f.sha;
+      }
+      for (let t = 0; t < 4; t++){   // índice dos canais (junta com o que outro aparelho gravou)
+        const txt = await ghLerTexto('youtube/indice.json'); let idx = [];
+        try { idx = (JSON.parse(txt || '{}').canais) || []; } catch(e){}
+        atualizarIndice(idx, meta);
+        try { await ghGravar('youtube/indice.json', JSON.stringify({canais:idx}), 'youtube: índice', cache); indiceRemoto = idx; break; }
+        catch(e){ if (e.status !== 409 && e.status !== 422) throw e; await aguardar(400); }
+      }
+      if (juntou){ finalizar(); await localPut('canal:' + canalId, {meta:montarMeta(), videos:videos.map(compacto), shas:shasCanal}); }
+      preencherSeletor();
+      setGh('Salvo no GitHub' + (mudou ? ' (' + mudou + (mudou === 1 ? ' arquivo' : ' arquivos') + ')' : ' (nada mudou)') + (juntou ? ' · juntei ' + juntou + ' vídeos que outro aparelho tinha' : '') + '.');
+    } catch(e){ setGh('Não consegui salvar no GitHub: ' + e.message + ' (a cópia local foi guardada).', true); }
+  }
+  function atualizarIndice(lista, meta){ const i = lista.findIndex(c => c.id === meta.id); if (i >= 0) lista[i] = meta; else lista.push(meta); }
+
+  async function carregarIndices(){
+    indiceLocal = (await localGet('indice')) || [];
+    if (ghOn()){
+      try { const txt = await ghLerTexto('youtube/indice.json'); indiceRemoto = txt ? (JSON.parse(txt).canais || []) : []; setGh(''); }
+      catch(e){ indiceRemoto = []; setGh('GitHub: ' + e.message + '. Mostrando só o que está neste navegador.', true); }
+    }
+    preencherSeletor();
+  }
+  function canaisConhecidos(){
+    const m = new Map(); indiceLocal.concat(indiceRemoto).forEach(c => { const x = m.get(c.id); if (!x || (c.atualizadoEm || '') > (x.atualizadoEm || '')) m.set(c.id, c); });
+    return Array.from(m.values()).sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+  }
+  function preencherSeletor(){
+    const sel = $('canaisSel'), atual = sel.value, lista = canaisConhecidos();
+    sel.innerHTML = '<option value="">Novo canal…</option>';
+    lista.forEach(c => { const o = document.createElement('option'); o.value = c.id; o.textContent = (c.nome || c.id) + ' · ' + fmtNum(c.total) + ' vídeos · atualizado em ' + fmtData(c.atualizadoEm); sel.appendChild(o); });
+    sel.value = lista.some(c => c.id === atual) ? atual : (canalId && lista.some(c => c.id === canalId) ? canalId : '');
+    $('cacheCard').hidden = !lista.length && !ghOn();
+  }
+
+  // abre um canal já baixado: da cópia local se estiver em dia; senão do GitHub
+  async function abrirCanal(id){
+    const rem = indiceRemoto.find(c => c.id === id), loc = indiceLocal.find(c => c.id === id);
+    let dados = null;
+    try {
+      const precisaRemoto = rem && (!loc || (rem.atualizadoEm || '') > (loc.atualizadoEm || ''));
+      if (!precisaRemoto) dados = await localGet('canal:' + id);
+      if (!dados && rem){
+        setStatus('Carregando do GitHub…'); setProgresso(0);
+        const dirRem = (await gh('contents/youtube/' + id, {ok404:true})) || []; const shas = {};
+        dirRem.forEach(f => { shas[f.name.replace('.json', '')] = f.sha; });
+        const anos = Object.keys(rem.anos || {}).sort(); let feitos = 0, todos = [];
+        const lote = async a => { const txt = await ghLerTexto('youtube/' + id + '/' + a + '.json'); if (txt) todos.push(...JSON.parse(txt)); setProgresso(++feitos / anos.length); };
+        for (let i = 0; i < anos.length; i += 4) await Promise.all(anos.slice(i, i + 4).map(lote));
+        dados = {meta:rem, videos:todos, shas};
+        await localPut('canal:' + id, dados); atualizarIndice(indiceLocal, rem); await localPut('indice', indiceLocal);
+      }
+    } catch(e){ setProgresso(null); return setStatus('Erro ao carregar o canal: ' + e.message, true); }
+    setProgresso(null);
+    if (!dados) return setStatus('Esse canal não está salvo neste navegador nem no GitHub.', true);
+    const m = dados.meta; shasCanal = dados.shas || {};
+    canalId = m.id; canalNome = m.nome; thumbCanal = m.thumb || ''; uploadsId = m.uploads || ''; oficial = m.oficial != null ? m.oficial : null; metaCanal = m;
+    videos = dados.videos.map(expandir);
+    playlistIds = new Set(videos.filter(v => v.o === 'u').map(v => v.id));
+    ordem = {k:'n', dir:1};
+    $('resultado').hidden = false; $('filtro').value = '';
+    finalizar();
+    setStatus('Canal aberto do cache: ' + fmtNum(videos.length) + ' vídeos, sem usar a API. Última atualização: ' + fmtData(m.atualizadoEm) + '.');
+  }
+  $('canaisSel').addEventListener('change', e => { if (e.target.value) abrirCanal(e.target.value); else { $('canal').focus(); } });
+  $('ghSalvar').addEventListener('click', async () => {
+    const repo = $('ghRepo').value.trim(), token = $('ghToken').value.trim();
+    if (!/^[A-Za-z0-9_.-]+/.test(repo) || repo.indexOf('/') < 1 || !token) return setGh('Informe o repositório (usuario/repositorio) e o token.', true);
+    Object.assign(GHC, {repo, token, origem:'salvo aqui'});
+    try { localStorage.setItem('yt_gh', JSON.stringify({repo, token})); } catch(e){}
+    $('ghOrigem').textContent = 'Usando ' + repo + ' (configuração salva aqui).';
+    await carregarIndices(); await carregarCatalogo(true); if (!$('ghStatus').textContent) setGh('Conectado ao GitHub.');
+  });
+  iniciarConfig().then(carregarIndices).then(() => carregarCatalogo(true));
+
+  // ---- atualização barata: lê a playlist de uploads do mais novo ao mais antigo e PARA no primeiro vídeo já conhecido ----
+  let ocupado = false;
+  function botoesOcupados(b){ ocupado = b; ['atualizar', 'recarregar', 'recSim'].forEach(id => { const e = $(id); if (e) e.disabled = b; }); }
+  async function atualizar(){
+    const key = $('chave').value.trim();
+    if (!canalId || !uploadsId) return setStatus('Abra ou liste um canal primeiro.', true);
+    if (!key) return setStatus('Informe a chave da API do YouTube para atualizar.', true);
+    if (ocupado || buscando) return;
+    botoesOcupados(true); setProgresso(0.1);
+    let usada = 0;
+    try {
+      const conhecidos = new Set(videos.map(v => v.id));
+      let token = '', novos = [], achou = false;
+      setStatus('Procurando vídeos novos…');
+      do {
+        const j = await api('playlistItems', {part:'snippet,contentDetails', playlistId:uploadsId, maxResults:50, ...(token ? {pageToken:token} : {})}, key);
+        usada++;
+        for (const it of j.items){ if (conhecidos.has(it.contentDetails.videoId)){ achou = true; break; } novos.push(it); }
+        token = achou ? '' : (j.nextPageToken || '');
+      } while (token);
+      const det = {};
+      for (let i = 0; i < novos.length; i += 50){
+        const j = await api('videos', {part:'contentDetails,statistics', id:novos.slice(i, i + 50).map(it => it.contentDetails.videoId).join(','), maxResults:50}, key);
+        usada++; j.items.forEach(v => det[v.id] = v);
+      }
+      let n0 = videos.length;
+      novos.forEach(it => {
+        const id = it.contentDetails.videoId, d = det[id];
+        if (it.snippet.title === 'Private video' || it.snippet.title === 'Deleted video') return;
+        videos.push({n:0, id, title:it.snippet.title, date:it.contentDetails.videoPublishedAt || it.snippet.publishedAt || '',
+          dur:d ? duracaoSeg(d.contentDetails.duration) : 0, views:d && d.statistics && d.statistics.viewCount != null ? +d.statistics.viewCount : null,
+          url:'https://www.youtube.com/watch?v=' + id});
+        playlistIds.add(id);
+      });
+      try { const c = await api('channels', {part:'statistics', id:canalId}, key); usada++; if (c.items && c.items[0]) oficial = +c.items[0].statistics.videoCount; } catch(e){}
+      const add = videos.length - n0;
+      finalizar();
+      setStatus(add ? `Atualizado: ${add} ${add === 1 ? 'vídeo novo' : 'vídeos novos'} (cota usada: ~${usada}).` : `Nada novo neste canal (cota usada: ~${usada}).`);
+      await guardarCanal();
+    } catch(e){
+      setStatus(/quota/i.test(e.message) ? 'Cota diária da API esgotada. Tente de novo amanhã.' : 'Erro ao atualizar: ' + e.message, true);
+    } finally { setProgresso(null); botoesOcupados(false); }
+  }
+  $('atualizar').addEventListener('click', atualizar);
+  $('recarregar').addEventListener('click', () => {
+    const custo = Math.ceil((videos.length || 50) / 50) * 2 + 2;
+    $('recTxt').textContent = `Recarregar tudo refaz a listagem completa do canal (serve para tirar vídeos que ficaram privados ou foram excluídos e atualizar views). Custo estimado: ~${fmtNum(custo)} unidades de cota (o limite grátis é 10.000 por dia). Os vídeos antigos já buscados são mantidos.`;
+    $('recConfirma').hidden = false;
+  });
+  $('recNao').addEventListener('click', () => { $('recConfirma').hidden = true; });
+  $('recSim').addEventListener('click', () => { $('recConfirma').hidden = true; if (canalId){ $('canal').value = canalId; listar(true); } });
+
+  // ---- ligação com o gerenciador: selo "já cadastrado" e botão "Cadastrar" (uma música por vez) ----
+  const BC = (() => { try { return new BroadcastChannel('karatube-youtube'); } catch(e){ return null; } })();
+  let catVids = new Map();        // id do vídeo -> códigos das versões já cadastradas
+  let catInfo = {n:0, origem:''};
+  const celCat = new Map();       // id do vídeo -> célula "Catálogo"
+  const idDeUrl = u => { u = String(u || '').trim(); if (/^[\w-]{11}$/.test(u)) return u; const m = u.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/); return m ? m[1] : ''; };
+
+  async function versoesLocais(){
+    let nomes = [], todas = [];
+    try { nomes = (await indexedDB.databases()).map(d => d.name); } catch(e){ return {lista:[], de:[]}; }
+    const de = [];
+    for (const n of ['karatube-gerenciador', 'karatube']){
+      if (!nomes.includes(n)) continue;
+      try {
+        const db = await new Promise((ok, erro) => { const r = indexedDB.open(n); r.onsuccess = () => ok(r.result); r.onerror = () => erro(r.error); });
+        let v = null; if (db.objectStoreNames.contains('kv')) v = await idbGet(db, 'versions'); db.close();
+        if (Array.isArray(v) && v.length){ todas = todas.concat(v); de.push(n === 'karatube' ? 'app' : 'gerenciador'); }
+      } catch(e){}
+    }
+    return {lista:todas, de};
+  }
+  let ultimoCatGh = 0, versoesGh = [];
+  async function carregarCatalogo(comGitHub){
+    const loc = await versoesLocais(); let lista = loc.lista.slice(), de = loc.de.slice();
+    if (ghOn() && (comGitHub || (Date.now() - ultimoCatGh > 60000 && !versoesGh.length))){
+      try { const t = await ghLerTexto('catalogo.json'); versoesGh = t ? (JSON.parse(t).versions || []) : []; ultimoCatGh = Date.now(); }
+      catch(e){ versoesGh = []; }
+    }
+    if (versoesGh.length){ lista = lista.concat(versoesGh); de.push('GitHub'); }
+    const m = new Map();
+    lista.forEach(v => { const id = v.vid || idDeUrl(v.url); if (!id || !v.code) return; const a = m.get(id) || []; if (!a.includes(v.code)) a.push(v.code); m.set(id, a); });
+    m.forEach(a => a.sort());
+    catVids = m; catInfo = {n:m.size, origem:de.join(' + ')};
+    $('catStatus').textContent = m.size ? `Catálogo lido (${de.join(' + ')}): ${fmtNum(m.size)} vídeos já cadastrados.` : (ghOn() || loc.de.length ? 'Nenhum vídeo cadastrado ainda.' : 'Sem acesso ao catálogo: ligue o GitHub acima ou abra o gerenciador neste site.');
+    celCat.forEach((td, id) => { const v = porId.get(id); if (v) pintarCat(v, td); });
+    if ($('soNovos').checked) render();
+  }
+  const porId = new Map();   // id do vídeo -> vídeo (para repintar o selo)
+
+  function pintarCat(v, td){
+    td.textContent = '';
+    const cods = catVids.get(v.id);
+    if (cods){
+      const s = document.createElement('span'); s.className = 'selo ok'; s.textContent = '✓ ' + cods[0] + (cods.length > 1 ? ' +' + (cods.length - 1) : ''); s.title = 'Já no catálogo: ' + cods.join(', ');
+      td.appendChild(s);
+    } else {
+      const b = document.createElement('button'); b.className = 'small'; b.textContent = 'Cadastrar'; b.title = 'Abre a tela de nova música do gerenciador já preenchida';
+      b.addEventListener('click', () => cadastrar(v, b)); td.appendChild(b);
+    }
+  }
+
+  // sugestão de música e cantor a partir de títulos como "Artista - Música (Karaoke Version)"
+  const PALAVRAS_KARAOKE = 'karaoke|karaokê|カラオケ|off ?vocal|オフボーカル|instrumental|playback|backing track|with lyrics|lyrics|inst\\.?|mr|full|hd|hq|4k|guide vocal|ガイドボーカル';
+  const reGrupo = new RegExp('\\s*[\\(\\[（【「『]\\s*[^\\)\\]）】」』]*(?:' + PALAVRAS_KARAOKE + ')[^\\)\\]）】」』]*[\\)\\]）】」』]\\s*', 'ig');
+  const reFim = new RegExp('[\\s\\-–—|:]*(?:' + PALAVRAS_KARAOKE + ')(?:\\s+(?:version|ver\\.?|ver))?\\s*$', 'i');
+  function limparTitulo(t){
+    let x = String(t || '').replace(reGrupo, ' ').trim(), ant;
+    do { ant = x; x = x.replace(reFim, '').trim(); } while (x !== ant);
+    return x.replace(/\s{2,}/g, ' ').trim();
+  }
+  function sugerir(titulo){
+    const x = limparTitulo(titulo);
+    let m = x.match(/^(.+?)\s+[-–—|]\s+(.+)$/);                // Artista - Música
+    if (m) return {cantor:m[1].trim(), musica:m[2].trim(), seguro:true};
+    m = x.match(/^(.+?)\s+[\/／]\s+(.+)$/);                     // Música / Artista (comum em títulos japoneses)
+    if (m) return {cantor:m[2].trim(), musica:m[1].trim(), seguro:false};
+    return {cantor:'', musica:x, seguro:false};
+  }
+  const capitalizar = s => s.replace(/(^|\s)(\S)/g, (_, a, b) => a + b.toUpperCase());
+  async function romajiDe(texto){
+    const k = await iniciarKuro();
+    const r = await k.convert(texto, {to:'romaji', mode:'spaced', romajiSystem:'hepburn'});
+    return r.replace(/\s{2,}/g, ' ').replace(/([(\[「『【])\s+/g, '$1').replace(/\s+([)\]」』】,.!?:;])/g, '$1').trim();
+  }
+  function b64url(s){ return b64(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+
+  async function cadastrar(v, btn){
+    const rot = btn.textContent; btn.disabled = true; btn.textContent = 'Enviando…';
+    try {
+      const s = sugerir(v.title);
+      const dados = {url:v.url, titulo:s.musica, cantor:s.cantor, roman:'', aliases:[], idioma:''};
+      if (temJP(s.musica + s.cantor)) dados.idioma = 'Japonês';
+      if (jpLigado() && temJP(s.musica + s.cantor)){
+        try {
+          if (temJP(s.musica)){ const r = await romajiDe(s.musica); dados.roman = r.replace(/^./, c => c.toUpperCase()); }
+          if (temJP(s.cantor)){ const r = await romajiDe(s.cantor); dados.aliases.push(capitalizar(r)); }
+        } catch(e){ /* sem dicionário: segue sem romaji */ }
+      }
+      const id = Math.random().toString(36).slice(2); let ack = false;
+      const ouvir = e => { if (e.data && e.data.tipo === 'cadastrar-ok' && e.data.id === id) ack = true; };
+      if (BC) { BC.addEventListener('message', ouvir); BC.postMessage({tipo:'cadastrar', id, dados}); await aguardar(700); BC.removeEventListener('message', ouvir); }
+      if (ack) setStatus('Enviado para o gerenciador que já estava aberto. Confira a aba dele e salve lá.');
+      else {
+        window.open('gerenciador.html#cadastrar=' + b64url(JSON.stringify(dados)), '_blank');
+        setStatus('Abri o gerenciador em outra aba com os dados deste vídeo. Confira e salve lá.');
+      }
+      btn.textContent = 'Enviado ✓'; setTimeout(() => { btn.textContent = rot; btn.disabled = false; }, 2500);
+    } catch(e){ setStatus('Não consegui enviar ao gerenciador: ' + e.message, true); btn.textContent = rot; btn.disabled = false; }
+  }
+  if (BC) BC.onmessage = e => { if (e.data && e.data.tipo === 'catalogo-atualizado') setTimeout(() => carregarCatalogo(false), 900); };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) carregarCatalogo(false); });
+  $('soNovos').addEventListener('change', render);
+
   // ---- vídeos antigos além do limite de ~20.000 da playlist de uploads ----
   const extrasKey = () => 'yt_extra_' + canalId;
   function lerExtras(){
     try { return JSON.parse(localStorage.getItem(extrasKey()) || '[]'); } catch(e){ return []; }
   }
-  function salvarExtras(){
-    try {
-      const extras = videos.filter(v => !playlistIds.has(v.id))
-        .map(v => ({id:v.id, title:v.title, date:v.date, dur:v.dur, views:v.views, url:v.url}));
-      localStorage.setItem(extrasKey(), JSON.stringify(extras));
-    } catch(e){}
+  function salvarExtras(){   // a cada rodada da busca de antigos: cópia local (o GitHub recebe ao final)
+    if (!canalId) return;
+    const por = videos.map(compacto);
+    localPut('canal:' + canalId, {meta:montarMeta(), videos:por, shas:shasCanal});
   }
 
   function atualizarCab(){
@@ -535,6 +929,7 @@
       buscando = false;
       $('parar').hidden = true;
       finalizar();
+      guardarCanal();
     }
   }
   $('maisAntigos').addEventListener('click', buscarAntigos);
