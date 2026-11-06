@@ -263,7 +263,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.18.0",APP_BUILD=1794001067,MGR=true;
+const APP_VERSION="1.18.1",APP_BUILD=1794002104,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -2791,7 +2791,7 @@ const SALA_MSG = {
 };
 const SALA = {
   ws: null, st: 'off', queue: [], search: true, who: { owner: false, mods: 0, guests: 0 }, ixTs: 0, ixN: 0, tries: 0, timer: null, hb: null,
-  createMsg: null, pend: {}, tvp: {}, results: null, gq: '', gTimer: null, modKeyV: null,
+  createMsg: null, pend: {}, tvp: {}, results: null, gq: '', gTimer: null, 
   cfg() { return D.settings.sala || null; },
   url() { return (D.settings.salaUrl || '').trim().replace(/\/+$/, ''); },
   name() { const n = (D.settings.salaName || '').trim(); if (n) return n; const dv = devInfo(); return dv && dv.name ? dv.name : 'Convidado'; },
@@ -2804,12 +2804,29 @@ const SALA = {
   link() { const c = SALA.cfg(); return new URL('./', location.href).href + '#sala=' + c.code + '&w=' + encodeURIComponent(SALA.url()); },
   newCode() { const a = new Uint8Array(10); crypto.getRandomValues(a); return Array.from(a, x => SALA_ALPHA[x % SALA_ALPHA.length]).join(''); },
   newKey() { const a = new Uint8Array(20); crypto.getRandomValues(a); return Array.from(a, x => pad(x.toString(16), 2)).join(''); },
-  async modKey() {
-    const g = D.settings.gh; if (!g || !g.token) return '';
-    if (SALA.modKeyV && SALA.modKeyV[0] === g.token) return SALA.modKeyV[1];
+  // Chave dos moderadores: vem de um segredo guardado no repositório privado de dados (sala.json).
+  // Quem consegue ler o repositório (cada aparelho com o seu token) obtém o mesmo segredo.
+  async secret(create) {
+    const g = D.settings.gh; if (!ghOn()) return '';
+    const c = D.settings.salaSecret; if (c && c[0] === g.repo) return c[1];
+    const keep = v => { D.settings.salaSecret = [g.repo, v]; save('settings'); return v; };
+    const read = async () => {
+      try { const j = await gh('/contents/sala.json'); const o = JSON.parse(atob(String(j.content || '').replace(/\s/g, ''))); return o && o.secret ? o.secret : ''; }
+      catch (e) { if (e.status === 404) return ''; throw e; }
+    };
     try {
-      const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('karatube-sala|' + g.token));
-      const v = Array.from(new Uint8Array(h), x => pad(x.toString(16), 2)).join(''); SALA.modKeyV = [g.token, v]; return v;
+      let v = await read(); if (v) return keep(v);
+      if (!create) return '';
+      v = SALA.newKey() + SALA.newKey();
+      try { await ghPut('sala.json', JSON.stringify({ secret: v }), null, 'Segredo da sala (KaraTube)'); return keep(v); }
+      catch (e) { v = await read(); return v ? keep(v) : ''; }
+    } catch (e) { return ''; }
+  },
+  async modKey(create) {
+    const sec = await SALA.secret(create); if (!sec) return '';
+    try {
+      const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('karatube-sala|' + sec));
+      return Array.from(new Uint8Array(h), x => pad(x.toString(16), 2)).join('');
     } catch (e) { return ''; }
   },
   snapOf(code) {
@@ -3024,7 +3041,8 @@ Object.assign(ACT, {
     if (!SALA.url()) { toast('Cole primeiro o endereço do Worker da sala.'); return; }
     if (SALA.member()) return;
     (async () => {
-      const code = SALA.newCode(), ownerKey = SALA.newKey(); const mod = await SALA.modKey();
+      const code = SALA.newCode(), ownerKey = SALA.newKey(); const mod = await SALA.modKey(true);
+      if (ghOn() && !mod) toast('Não consegui criar a chave dos moderadores (GitHub). A sala começa sem moderadores.', { ms: 6000 });
       const queue = D.queue.map(e => Object.assign({ q: e.q, code: e.code }, SALA.snapOf(e.code) || {})).filter(e => e.t);
       D.settings.sala = { code, role: 'owner', ownerKey, synced: true };
       SALA.createMsg = { create: true, owner: ownerKey, mod, queue, search: true };
@@ -3055,7 +3073,7 @@ Object.assign(ACT, {
     SALA.send({ t: 'close' }, true);
     SALA.drop(); const code = SALA.newCode();
     (async () => {
-      const mod = await SALA.modKey();
+      const mod = await SALA.modKey(true);
       D.settings.sala = { code, role: 'owner', ownerKey: c.ownerKey, synced: true };
       SALA.createMsg = { create: true, owner: c.ownerKey, mod, queue, search: SALA.search }; save('settings'); SALA.connect(); render();
       toast('Código novo: ' + code);
