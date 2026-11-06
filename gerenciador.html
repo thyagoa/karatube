@@ -263,7 +263,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.17.0",APP_BUILD=1793997663,MGR=true;
+const APP_VERSION="1.18.0",APP_BUILD=1794001067,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -599,6 +599,7 @@ const songValues = fn => { const c = {}; D.songs.forEach(s => { const x = fn(s);
 /* ---------------- fila ---------------- */
 function qAdd(code, toFront) {
   if (!X.ver[code]) return;
+  if (salaShared()) return SALA.addCode(code, toFront);
   const e = { q: uid(), code };
   if (toFront && D.queue.length) D.queue.splice(1, 0, e); else D.queue.push(e);
   save('queue');
@@ -606,6 +607,7 @@ function qAdd(code, toFront) {
 function qCurrent() { return D.queue[0] ? X.ver[D.queue[0].code] : null; }
 function sung() {
   const e = D.queue[0]; if (!e) return null;
+  if (salaShared() && !SALA.live()) { toast('Sem conexão com a sala. Tentando reconectar…'); return null; }
   const v = X.ver[e.code];
   if (v) {
     v.sung = (v.sung || 0) + 1; v.lastSung = now(); v.link = 'ok'; v.updated = now();
@@ -614,9 +616,10 @@ function sung() {
     const s = songOf(v); if (s) s.updated = now();
     save('versions', 'history', 'songs');
   }
-  D.queue.shift(); save('queue'); return v;
+  if (salaShared()) { if (!SALA.done(e, true)) return v; } else { D.queue.shift(); save('queue'); }
+  return v;
 }
-function skipCurrent() { const e = D.queue.shift(); save('queue'); return e; }
+function skipCurrent() { const e = D.queue[0]; if (!e) return null; if (salaShared()) { SALA.done(e, false); return e; } D.queue.shift(); save('queue'); return e; }
 function markBroken(code, on) { const v = X.ver[code]; if (!v) return; v.link = on ? 'broken' : 'unverified'; v.updated = now(); save('versions'); }
 function toggleFav(songId) { const s = X.song[songId]; if (!s) return; s.fav = !s.fav; s.updated = now(); save('songs'); }
 
@@ -1375,7 +1378,9 @@ function render() {
   const ae = document.activeElement; const fid = ae && ae.id ? ae.id : null;
   const sel = fid && ae.selectionStart != null ? [ae.selectionStart, ae.selectionEnd] : null;
   let html;
-  if (!devInfo()) html = viewFirstRun();
+  if (ui.join) html = SALA.viewJoin();
+  else if (SALA.guest()) html = SALA.viewGuest();
+  else if (!devInfo()) html = viewFirstRun();
   else html = ui.wide ? shellWide() : shellPhone();
   html += sheetHtml();
   app.innerHTML = html;
@@ -1565,12 +1570,12 @@ function ratingBtns() {
 }
 function queueFull(noHead) {
   const cur = qCurrent();
-  let h = noHead ? '' : `<div class="pad" style="padding-top:18px;padding-bottom:6px"><div style="font-size:22px;font-weight:800">Fila</div><div class="muted" style="font-size:13px">${cur ? `1 agora · ${D.queue.length - 1} na espera` : 'vazia'}</div></div>`;
+  let h = noHead ? '' : `<div class="pad" style="padding-top:18px;padding-bottom:6px"><div style="font-size:22px;font-weight:800">Fila</div><div class="muted" style="font-size:13px">${cur ? `1 agora · ${D.queue.length - 1} na espera` : 'vazia'}</div>${SALA.member() ? `<div class="fx ac g6 muted" style="font-size:12px;font-weight:700;margin-top:4px"><span class="dot ${SALA.st === 'on' ? 'ok' : 'broken'}"></span>Sala <span class="mono">${esc(SALA.cfg().code)}</span> · ${SALA.st === 'on' ? 'conectada' : 'sem conexão'}</div>` : ''}</div>`;
   if (!cur) return h + `<div class="empty"><div class="big" style="width:88px;height:88px;border-radius:44px">${ic('queue', 40, 1.6)}</div><h3 style="font-size:18px">Fila vazia</h3><p>Toque no ícone de fila de uma música para adicionar aqui.</p></div>`;
   const s = songOf(cur);
   h += `<div class="scroll pad" data-sk="queue" style="padding-top:8px;padding-bottom:12px">
    <div class="nowcard"><div class="fx ac"><div class="k fx1">AGORA</div><button class="ib" style="width:36px;height:36px;color:${s.fav ? 'var(--star)' : 'var(--muted)'}" data-act="fav" data-id="${s.id}" aria-label="Favoritar">${s.fav ? starFill(24) : ic('star', 24)}</button></div>
-    <div class="fx g12" style="margin-top:8px">${vthumb(s, cur, 112, 63, 10)}<div class="fx1"><div class="jp" style="font-size:16px;font-weight:700;line-height:1.25">${esc(s.title)}</div><div class="mono muted" style="font-size:12px;margin-top:2px">${esc((s.singers || [])[0] || '')} · ${cur.code}</div>
+    <div class="fx g12" style="margin-top:8px">${vthumb(s, cur, 112, 63, 10)}<div class="fx1"><div class="jp" style="font-size:16px;font-weight:700;line-height:1.25">${esc(s.title)}</div><div class="mono muted" style="font-size:12px;margin-top:2px">${esc((s.singers || [])[0] || '')} · ${cur.code}</div>${D.queue[0].by ? `<div class="muted" style="font-size:12px">pedido por ${esc(D.queue[0].by)}</div>` : ''}
       <div class="fx ac g6" style="margin-top:4px"><span class="dot ${cur.link || 'unverified'}"></span><span class="muted" style="font-size:12px">${linkLabel(cur.link)}</span></div></div></div>
     ${[cur.key && 'Tom ' + cur.key, cur.voice].filter(Boolean).length ? `<div class="chips" style="gap:6px;margin-top:8px">${[cur.key && 'Tom ' + cur.key, cur.voice].filter(Boolean).map(m => `<span class="mini">${esc(m)}</span>`).join('')}</div>` : ''}
     <div class="fx g8" style="margin-top:12px">${btn('Abrir no YouTube', 'openYT', { cls: 'primary grow lg', icon: 'play', d: { code: cur.code } })}${ib('tv', 'tv', 'Enviar para a TV', { cls: 'bd', s: 22 })}</div>
@@ -1582,7 +1587,7 @@ function queueFull(noHead) {
   h += `<div class="muted" style="font-size:12px;font-weight:700;margin:16px 0 8px">PRÓXIMAS${rest.length ? '' : ' · nenhuma'}</div>`;
   h += rest.map((e, i) => {
     const v = X.ver[e.code]; if (!v) return ''; const so = songOf(v);
-    return `<div class="qrow">${thumbHtml(so, v, 40, 18, 8)}<div class="fx1"><div class="ell jp" style="font-size:14px;font-weight:700">${esc(so.title)}</div><div class="ell mono muted" style="font-size:12px">${esc((so.singers || [])[0] || '')} · ${v.code}</div></div>
+    return `<div class="qrow">${thumbHtml(so, v, 40, 18, 8)}<div class="fx1"><div class="ell jp" style="font-size:14px;font-weight:700">${esc(so.title)}</div><div class="ell mono muted" style="font-size:12px">${esc((so.singers || [])[0] || '')} · ${v.code}${e.by ? ' · ' + esc(e.by) : ''}</div></div>
       ${i > 0 ? ib('up', 'qUp', 'Tocar a seguir', { s: 20, d: { q: e.q } }) : ''}${ib('close', 'qRm', 'Tirar da fila', { s: 20, d: { q: e.q } })}</div>`;
   }).join('');
   h += `<div class="fx g8" style="margin-top:10px">${btn('Limpar fila', 'qClear', { cls: 'text sm' })}${btn('Salvar como lista', 'qToList', { cls: 'sm' })}</div></div>`;
@@ -1931,10 +1936,14 @@ function viewListEdit() {
 function useListNow(listId, mode, alsoCurrent) {
   const l = D.lists.find(x => x.id === listId); if (!l) return;
   const codes = l.items.filter(c => X.ver[c]);
-  if (mode === 'add') { codes.forEach(c => D.queue.push({ q: uid(), code: c })); save('queue'); toast(codes.length + ' músicas no fim da fila'); }
+  if (mode === 'add') {
+    const have = new Set(D.queue.map(e => e.code)); const add = salaShared() ? codes.filter(c => !have.has(c)) : codes;
+    if (salaShared()) qSet(D.queue.concat(add.map(c => ({ q: uid(), code: c })))); else { codes.forEach(c => D.queue.push({ q: uid(), code: c })); save('queue'); }
+    toast(add.length + ' músicas no fim da fila');
+  }
   else {
     const keep = alsoCurrent ? [] : D.queue.slice(0, 1);
-    D.queue = keep.concat(codes.map(c => ({ q: uid(), code: c }))); save('queue'); ui.nowKey = null; toast('Fila substituída por “' + l.name + '”');
+    qSet(keep.concat(codes.filter(c => !keep.some(k => k.code === c)).map(c => ({ q: uid(), code: c })))); ui.nowKey = null; toast('Fila substituída por “' + l.name + '”');
   }
 }
 
@@ -1987,6 +1996,7 @@ function settingsCards() {
       <p style="margin-top:10px;font-weight:700">Endereço do proxy</p><div class="field" style="margin-top:4px"><input id="tvproxy" data-change="tvProxy" value="${esc(D.settings.tvProxy || '')}" placeholder="https://karatube.seunome.workers.dev" autocapitalize="off" spellcheck="false"></div>
       ${D.settings.tvScreen ? `<div class="fx g8" style="margin-top:10px">${btn('Desparear', 'tvUnpair', { cls: 'fx1' })}</div>` : `<p style="margin-top:10px">Na TV, abra o YouTube › Configurações › Vincular com código da TV e digite o código de 12 dígitos aqui.</p>
       <div class="fx g8" style="margin-top:6px"><div class="field fx1"><input id="tvcode" placeholder="000 000 000 000" inputmode="numeric" style="font-family:'JetBrains Mono',monospace;font-size:16px"></div>${btn('Parear', 'tvPair', { style: 'height:48px' })}</div>`}</div>`,
+    sala: SALA.card(),
     sync: `<div class="card"><div class="fx ac g8"><h3 class="fx1">Sincronizar com o GitHub</h3><span class="fx ac g6 muted" style="font-size:12px;font-weight:700"><span class="dot ${ghOn() ? (D.settings.gh.err ? 'broken' : 'ok') : 'unverified'}"></span>${ghOn() ? (D.settings.gh.err ? 'Com erro' : 'Ligada') : 'Desligada'}</span></div>
       <p>Mantém o catálogo igual no celular e no tablet, e guarda uma cópia no seu repositório privado do GitHub. A fila e os ajustes não são sincronizados.</p>
       <p style="margin-top:10px;font-weight:700">Repositório de dados</p><div class="field" style="margin-top:4px"><input id="ghrepo" value="${esc((D.settings.gh || {}).repo || '')}" placeholder="usuario/repositorio" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
@@ -2007,8 +2017,8 @@ function settingsCards() {
 function viewSettings() {
   const cards = settingsCards();
   const hd = `<div class="hdr"><h1>Ajustes</h1></div>`;
-  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.order}${cards.idiomas}${cards.qicon}${cards.store}</div><div>${cards.backup}${cards.sync}${cards.fontes}${cards.tv}${cards.ver}</div></div></div>`;
-  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.sync}${cards.device}${cards.order}${cards.idiomas}${cards.qicon}${cards.fontes}${cards.tv}${cards.store}${cards.ver}</div>`;
+  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.order}${cards.idiomas}${cards.qicon}${cards.store}</div><div>${cards.backup}${cards.sync}${cards.fontes}${cards.tv}${cards.sala}${cards.ver}</div></div></div>`;
+  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.sync}${cards.device}${cards.order}${cards.idiomas}${cards.qicon}${cards.fontes}${cards.tv}${cards.sala}${cards.store}${cards.ver}</div>`;
 }
 
 /* ---------- primeira abertura ---------- */
@@ -2456,9 +2466,9 @@ const ACT = {
   skip() { pular(); },
   broken() { const c = qCurrent(); if (!c) return; markBroken(c.code, c.link !== 'broken'); render(); },
   rate(d) { const n = parseInt(d.n, 10); ui.nowRating = ui.nowRating === n ? 0 : n; render(); },
-  qUp(d) { const i = D.queue.findIndex(e => e.q === d.q); if (i > 1) { const [e] = D.queue.splice(i, 1); D.queue.splice(1, 0, e); save('queue'); render(); } },
-  qRm(d) { D.queue = D.queue.filter(e => e.q !== d.q); save('queue'); render(); },
-  qClear() { const sn = clone(D.queue); D.queue = []; save('queue'); ui.nowKey = null; render(); toast('Fila limpa', { action: 'Desfazer', onAction: () => { D.queue = sn; save('queue'); ui.nowKey = null; render(); } }); },
+  qUp(d) { if (salaShared()) { SALA.up(d.q); return; } const i = D.queue.findIndex(e => e.q === d.q); if (i > 1) { const [e] = D.queue.splice(i, 1); D.queue.splice(1, 0, e); save('queue'); render(); } },
+  qRm(d) { if (salaShared()) { SALA.rm(d.q); return; } D.queue = D.queue.filter(e => e.q !== d.q); save('queue'); render(); },
+  qClear() { const sn = clone(D.queue); if (!qSet([])) return; ui.nowKey = null; render(); toast('Fila limpa', { action: 'Desfazer', onAction: () => { qSet(sn); ui.nowKey = null; render(); } }); },
   qToList() { openSheet({ type: 'newList', name: '', from: 'queue' }); },
   openYT(d) { openYT(d.code); },
   async tv(d) {
@@ -2466,15 +2476,15 @@ const ACT = {
     const vid = parseVid(c.url); if (!vid) { toast('Esta versão não tem link válido.'); return; }
     toast('Enviando para a TV…', { ms: 2500 });
     try {
-      await TV.send(vid);
-      const name = D.settings.tvScreen.name || 'a TV';
+      let name;
+      if (SALA.relayTV()) { await SALA.tv(c.code); name = 'a TV'; } else { await TV.send(vid); name = D.settings.tvScreen.name || 'a TV'; }
       if (!(d && d.code) || (D.queue[0] && D.queue[0].code === d.code)) { toast('Enviado para ' + name + '.'); return; }
       // enviada da lista de versões: vira a música da vez; a que estava na vez passa a ser a próxima
       const before = D.queue.slice(); const had = D.queue.find(e => e.code === d.code);
-      D.queue = D.queue.filter(e => e.code !== d.code); D.queue.unshift(had || { q: uid(), code: d.code }); save('queue'); render();
-      toast('Enviado para ' + name + ' e é a música da vez.', { action: 'Desfazer', onAction: () => { D.queue = before; save('queue'); render(); } });
+      qSet([had || { q: uid(), code: d.code }].concat(D.queue.filter(e => e.code !== d.code))); render();
+      toast('Enviado para ' + name + ' e é a música da vez.', { action: 'Desfazer', onAction: () => { qSet(before); render(); } });
     }
-    catch (e) { toast(tvErrMsg(e), { ms: 5000 }); render(); }
+    catch (e) { toast(e && e.message ? tvErrMsg(e) : (e === 'owner-offline' ? 'O dono da sala (aparelho da TV) não está conectado.' : e === 'timeout' ? 'A TV não respondeu a tempo.' : e === 'sem-conexao' ? 'Sem conexão com a sala.' : String(e)), { ms: 5000 }); render(); }
   },
   async tvPair() {
     const e = $('#tvcode'); const code = e ? e.value : ''; const p = $('#tvproxy'); if (p) { D.settings.tvProxy = p.value.trim(); save('settings'); }
@@ -2711,6 +2721,7 @@ document.addEventListener('input', e => {
     if (/insertParagraph|insertLineBreak/.test(e.inputType || '') || /[\r\n]/.test(t.value)) { t.value = t.value.replace(/[\r\n]+/g, ''); ui.draft.aliasIn = t.value; ACT.addAlias(); }
     return;
   }
+  if (t.id === 'gq') { SALA.gText = t.value; SALA.guestInput(t.value); return; }
   if (t.id === 'f-tagIn') { if (ui.draft) ui.draft.tagIn = t.value; updSug('tag'); return; }
   const f = t.dataset && t.dataset.f;
   if (f && ui.draft) {
@@ -2735,6 +2746,9 @@ document.addEventListener('change', e => {
     case 'devSlot': { const dv = devInfo(); const k = parseInt(t.value, 10); if (dv && k >= 0) { dv.slot = k; save('settings'); render(); syncSoon(1500); toast('Faixa trocada. Vale só para músicas novas.'); } break; }
     case 'frName': ui.fr.name = t.value; break;
     case 'tvProxy': D.settings.tvProxy = t.value.trim(); save('settings'); break;
+    case 'salaUrl': D.settings.salaUrl = t.value.trim().replace(/\/+$/, ''); save('settings'); if (SALA.member()) { SALA.drop(); SALA.connect(); } break;
+    case 'salaName': D.settings.salaName = t.value.trim(); save('settings'); if (SALA.member()) { SALA.drop(); SALA.connect(); } render(); break;
+    case 'salaSearch': SALA.search = t.checked; SALA.send({ t: 'cfg', search: t.checked }); break;
     case 'langEmpty': D.settings.langEmpty = t.checked; D.settings.langEmptyAt = now(); save('settings'); syncSoon(3000); if (!t.checked) ui.f.langs = ui.f.langs.filter(x => x !== LANG_NONE); render(); break;
     case 'srcOn': { const off = D.settings.basesOff || (D.settings.basesOff = []); const i = off.indexOf(t.dataset.id); if (t.checked && i >= 0) off.splice(i, 1); if (!t.checked && i < 0) off.push(t.dataset.id); save('settings'); render(); break; }
     case 'onBase': { const i = s.sel.indexOf(t.dataset.id); if (t.checked && i < 0) s.sel.push(t.dataset.id); if (!t.checked && i >= 0) s.sel.splice(i, 1); render(); break; }
@@ -2760,10 +2774,325 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener && matchMedia('(pref
   setWide(); render(); window.APP_READY = true;
   if (!MGR && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { }); if (!MGR && /^https?:$/.test(location.protocol) && navigator.onLine) setTimeout(() => checkUpdate(true), 3000);
   setTimeout(() => ghSyncNow(false), 3500);
+  salaInit(); if (ui.join) render();
 })();
 // o teclado do celular pode deslocar a página inteira; ao sair do campo volta ao topo
 document.addEventListener('focusout', () => setTimeout(() => { if (window.scrollY || document.documentElement.scrollTop) window.scrollTo(0, 0); }, 120));
 window.addEventListener('scroll', () => { if (window.scrollY) window.scrollTo(0, 0); }, { passive: true });
+
+/* ===== Sala · fila compartilhada (Worker separado, worker-sala.js) =====
+   Papéis: dono (criou a sala), moderador (aparelho com o mesmo token do GitHub) e convidado (só o código).
+   Dono e moderador usam a fila normal do app: D.queue vira um espelho da fila do servidor.
+   O convidado não tem catálogo: usa a tela de convidado (busca e pedido). */
+const SALA_ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const SALA_MSG = {
+  naoencontrado: 'Código não encontrado.', repetida: 'Essa versão já está na fila.', limite: 'Você já tem 3 músicas na fila.',
+  cheia: 'A fila está cheia.', espere: 'Muitos códigos errados. Espere um pouco.'
+};
+const SALA = {
+  ws: null, st: 'off', queue: [], search: true, who: { owner: false, mods: 0, guests: 0 }, ixTs: 0, ixN: 0, tries: 0, timer: null, hb: null,
+  createMsg: null, pend: {}, tvp: {}, results: null, gq: '', gTimer: null, modKeyV: null,
+  cfg() { return D.settings.sala || null; },
+  url() { return (D.settings.salaUrl || '').trim().replace(/\/+$/, ''); },
+  name() { const n = (D.settings.salaName || '').trim(); if (n) return n; const dv = devInfo(); return dv && dv.name ? dv.name : 'Convidado'; },
+  member() { return !!SALA.cfg(); },
+  role() { const c = SALA.cfg(); return c ? c.role || 'guest' : ''; },
+  shared() { return SALA.member() && SALA.role() !== 'guest'; },     // dono ou moderador: usa a fila do app
+  guest() { return SALA.member() && SALA.role() === 'guest'; },
+  relayTV() { return SALA.member() && SALA.role() === 'mod'; },
+  live() { return SALA.st === 'on' && !!SALA.ws; },
+  link() { const c = SALA.cfg(); return new URL('./', location.href).href + '#sala=' + c.code + '&w=' + encodeURIComponent(SALA.url()); },
+  newCode() { const a = new Uint8Array(10); crypto.getRandomValues(a); return Array.from(a, x => SALA_ALPHA[x % SALA_ALPHA.length]).join(''); },
+  newKey() { const a = new Uint8Array(20); crypto.getRandomValues(a); return Array.from(a, x => pad(x.toString(16), 2)).join(''); },
+  async modKey() {
+    const g = D.settings.gh; if (!g || !g.token) return '';
+    if (SALA.modKeyV && SALA.modKeyV[0] === g.token) return SALA.modKeyV[1];
+    try {
+      const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('karatube-sala|' + g.token));
+      const v = Array.from(new Uint8Array(h), x => pad(x.toString(16), 2)).join(''); SALA.modKeyV = [g.token, v]; return v;
+    } catch (e) { return ''; }
+  },
+  snapOf(code) {
+    const v = X.ver[code]; if (!v) return null; const s = songOf(v);
+    return { t: s.title, s: (s.singers || [])[0] || '', v: v.vid || parseVid(v.url), k: v.key || '', o: v.voice || '', n: v.vnote || '' };
+  },
+  /* ---------- conexão ---------- */
+  connect() {
+    const c = SALA.cfg(); if (!c || !SALA.url()) return;
+    if (SALA.ws && SALA.ws.readyState < 2) return;
+    clearTimeout(SALA.timer); SALA.st = 'conn';
+    let ws;
+    try { ws = new WebSocket(SALA.url().replace(/^http/i, 'ws') + '/sala/' + c.code); } catch (e) { SALA.st = 'off'; SALA.retry(); return; }
+    SALA.ws = ws;
+    ws.onopen = async () => {
+      const m = { t: 'hello', dev: TV.devId(), name: SALA.name() };
+      const mk = await SALA.modKey(); if (mk) m.mod = mk;
+      if (c.ownerKey) m.owner = c.ownerKey;
+      if (SALA.createMsg) { Object.assign(m, SALA.createMsg); SALA.createMsg = null; }
+      if (ws.readyState === 1) ws.send(JSON.stringify(m));
+      clearInterval(SALA.hb); SALA.hb = setInterval(() => { try { if (ws.readyState === 1) ws.send('ping'); } catch (e) { } }, 25000);
+    };
+    ws.onmessage = e => { if (SALA.ws !== ws) return; let m; try { m = JSON.parse(e.data); } catch (x) { return; } SALA.recv(m); };
+    ws.onclose = () => {
+      if (SALA.ws !== ws) return;
+      SALA.ws = null; SALA.st = 'off'; clearInterval(SALA.hb);
+      if (SALA.cfg()) SALA.retry();
+      render();
+    };
+    render();
+  },
+  retry() { clearTimeout(SALA.timer); const w = Math.min(30000, 1000 * Math.pow(2, SALA.tries++)); SALA.timer = setTimeout(() => SALA.connect(), w); },
+  drop() { const w = SALA.ws; SALA.ws = null; SALA.st = 'off'; clearInterval(SALA.hb); clearTimeout(SALA.timer); if (w) { try { w.close(); } catch (e) { } } },
+  send(o, quiet) {
+    if (!SALA.live()) { if (!quiet) toast('Sem conexão com a sala. Tentando reconectar…'); return false; }
+    SALA.ws.send(JSON.stringify(o)); return true;
+  },
+  resume() { if (SALA.cfg() && SALA.url()) SALA.connect(); },
+  leave(msg) {
+    SALA.drop(); delete D.settings.sala; SALA.queue = []; SALA.results = null; SALA.who = { owner: false, mods: 0, guests: 0 };
+    save('settings'); if (msg) toast(msg); render();
+  },
+  /* ---------- mensagens do servidor ---------- */
+  recv(m) {
+    const c = SALA.cfg();
+    switch (m.t) {
+      case 'ready': {
+        if (!c) return;
+        SALA.st = 'on'; SALA.tries = 0; c.role = m.role; SALA.queue = m.queue || []; SALA.search = m.search !== false; SALA.ixTs = m.ixTs || 0; SALA.ixN = m.ixN || 0;
+        if (m.role !== 'owner') delete c.ownerKey;
+        if (SALA.shared()) {
+          if (!c.synced) {
+            const same = D.queue.length === SALA.queue.length && D.queue.every((e, i) => e.code === SALA.queue[i].code);
+            if (!m.created && !same && D.queue.length && !confirm('Sua fila atual (' + D.queue.length + ' músicas) será trocada pela fila da sala. Continuar?')) { SALA.leave(); return; }
+            c.synced = true;
+          }
+          SALA.applyQueue(); SALA.ixCheck();
+        }
+        save('settings'); render(); break;
+      }
+      case 'queue': SALA.queue = m.queue || []; if (SALA.shared()) SALA.applyQueue(); render(); break;
+      case 'who': SALA.who = m; if (ui.tab === 'aju' || SALA.guest()) render(); break;
+      case 'cfg': SALA.search = m.search !== false; render(); break;
+      case 'indexed': SALA.ixTs = m.ts; SALA.ixN = m.n; render(); break;
+      case 'results': if (m.id === SALA.gq) { SALA.results = m; const e = $('#gres'); if (e) e.innerHTML = SALA.guestResults(); } break;
+      case 'added': {
+        const p = SALA.pend[m.id]; delete SALA.pend[m.id];
+        if (m.ok) { if (SALA.guest()) { toast('Enviado: ' + (m.title || m.code)); if (SALA.results) SALA.markInQ(m.code); } }
+        else toast(m.why === 'espere' ? 'Muitos códigos errados. Espere ' + (m.wait || 30) + ' s.' : (SALA_MSG[m.why] || 'Não deu para enviar.'));
+        if (p && p.cb) p.cb(m); break;
+      }
+      case 'closed': SALA.leave(m.why === 'idle' ? 'A sala foi encerrada por falta de uso.' : 'A sala foi encerrada.'); break;
+      case 'err':
+        if (m.code === 'nosala') { if (c && c.ownerKey && SALA.lastCreate) { /* nada */ } SALA.leave('Sala não encontrada. Confira o código.'); }
+        else if (m.code === 'exists') { toast('Esse código já existe. Tente de novo.'); SALA.leave(); }
+        else if (m.code === 'perm') toast('Você não tem permissão para isso nesta sala.');
+        else if (m.code === 'big') toast('O catálogo é grande demais para a sala.');
+        break;
+      case 'tv': SALA.doTV(m); break;
+      case 'tvres': { const p = SALA.tvp[m.id]; if (p) { delete SALA.tvp[m.id]; clearTimeout(p.t); m.ok ? p.ok() : p.no(m.err); } break; }
+    }
+  },
+  applyQueue() { D.queue = SALA.queue.map(e => Object.assign({}, e)); save('queue'); },
+  /* ---------- ações (dono e moderador) ---------- */
+  entryOf(code) { const sn = SALA.snapOf(code); return sn ? Object.assign({ code }, sn) : null; },
+  addCode(code, front) {
+    const sn = SALA.snapOf(code); if (!sn) return false;
+    return SALA.send({ t: 'add', id: uid(), code, front: !!front, snap: sn });
+  },
+  setq(arr) { return SALA.send({ t: 'setq', queue: arr.map(e => Object.assign({}, SALA.entryOf(e.code) || {}, { q: e.q, code: e.code, by: e.by, dev: e.dev, role: e.role })) }); },
+  done(e, sung) { return SALA.send({ t: 'done', q: e.q, sung: !!sung }); },
+  rm(q) { return SALA.send({ t: 'rm', q }); },
+  up(q) { return SALA.send({ t: 'up', q }); },
+  tv(code) {
+    return new Promise((ok, no) => {
+      const id = uid(); if (!SALA.send({ t: 'tv', id, code })) { no('sem-conexao'); return; }
+      SALA.tvp[id] = { ok, no, t: setTimeout(() => { delete SALA.tvp[id]; no('timeout'); }, 20000) };
+    });
+  },
+  async doTV(m) {     // um moderador pediu: o dono (aparelho pareado) manda para a TV
+    const v = X.ver[m.code]; const vid = v ? (v.vid || parseVid(v.url)) : '';
+    try { if (!vid) throw new Error('novideo'); await TV.send(vid); SALA.send({ t: 'tvres', id: m.id, ok: true, to: m.to }, true); }
+    catch (e) { SALA.send({ t: 'tvres', id: m.id, ok: false, err: e.message === 'novideo' ? 'Esta versão não tem link válido.' : tvErrMsg(e), to: m.to }, true); }
+  },
+  /* ---------- índice do catálogo (para a busca dos convidados) ---------- */
+  buildIndex() {
+    const items = []; let ts = 0;
+    D.versions.forEach(v => {
+      const s = X.song[v.song]; if (!s) return;
+      const x = [tKey(s.title), tKey(s.roman), tKey((s.singers || []).join(' ')), v.code, v.code.replace('-', '')].filter(Boolean).join(' ').slice(0, 400);
+      items.push({ c: v.code, t: s.title, s: (s.singers || [])[0] || '', v: v.vid || parseVid(v.url), k: v.key || '', o: v.voice || '', n: v.vnote || '', x });
+      ts = Math.max(ts, v.updated || 0, s.updated || 0, v.created || 0);
+    });
+    return { items, ts: ts || 1 };
+  },
+  ixCheck() {
+    if (!SALA.shared() || !SALA.live()) return;
+    let ts = 0; D.versions.forEach(v => { ts = Math.max(ts, v.updated || 0, v.created || 0); }); D.songs.forEach(s => { ts = Math.max(ts, s.updated || 0); });
+    if (!D.versions.length) return;
+    if (SALA.ixN === 0 || ts > SALA.ixTs) SALA.sendIndex();
+  },
+  sendIndex() {
+    const b = SALA.buildIndex(); const id = uid(); const per = 300; const n = Math.max(1, Math.ceil(b.items.length / per));
+    for (let i = 0; i < n; i++) if (!SALA.send({ t: 'index', id, i, n, ts: b.ts, items: b.items.slice(i * per, (i + 1) * per) }, true)) return;
+    SALA.ixTs = b.ts; SALA.ixN = b.items.length;
+  },
+  /* ---------- convidado ---------- */
+  guestAdd(code) {
+    code = String(code || '').trim();
+    if (!SALA.send({ t: 'add', id: uid(), code })) return;
+  },
+  guestInput(v) {
+    clearTimeout(SALA.gTimer);
+    SALA.gTimer = setTimeout(() => {
+      const toks = tKey(v).split(' ').filter(Boolean); const e = $('#gres'); SALA.gq = uid();
+      if (!toks.length || toks.join('').length < 2 && !/[^\x00-\x7f]/.test(toks.join(''))) { SALA.results = null; if (e) e.innerHTML = SALA.guestResults(); return; }
+      SALA.send({ t: 'search', id: SALA.gq, q: toks }, true);
+    }, 300);
+  },
+  markInQ(code) { if (SALA.results && SALA.results.items) SALA.results.items.forEach(x => { if (x.c === code) x.inq = true; }); const e = $('#gres'); if (e) e.innerHTML = SALA.guestResults(); },
+  myCount() { const d = TV.devId(); return SALA.queue.filter(e => e.dev === d).length; },
+  guestRow(x) {
+    const chips = [x.k && 'Tom ' + x.k, x.o, x.n].filter(Boolean);
+    return `<div class="srow" style="cursor:default;gap:10px">${x.v ? `<img src="${thumbUrl(x.v)}" alt="" width="64" height="36" style="border-radius:8px;object-fit:cover;flex:none;background:var(--line)">` : ''}
+      <div class="fx1" style="min-width:0"><div class="ell jp t" style="font-size:15px">${esc(x.t)}</div><div class="r ell"><span class="jp">${esc(x.s)}</span> · <span class="mono">${esc(x.c)}</span></div>${chips.length ? `<div class="chips" style="gap:4px;margin-top:2px">${chips.map(c => `<span class="mini">${esc(c)}</span>`).join('')}</div>` : ''}</div>
+      ${x.inq ? '<span class="muted" style="font-size:12px;font-weight:700;flex:none">Na fila</span>' : btn('Pedir', 'gAdd', { cls: 'primary sm', d: { code: x.c } })}</div>`;
+  },
+  guestResults() {
+    const r = SALA.results;
+    if (!r) return '<div class="muted" style="font-size:13px;padding:6px 2px">Digite parte do nome, do cantor ou o código da música (ex.: 000123-01).</div>';
+    if (r.off) return '<div class="muted" style="font-size:13px;padding:6px 2px">A busca está desligada nesta sala. Digite o código da música e toque em Pedir.</div>';
+    if (r.wait) return '<div class="muted" style="font-size:13px;padding:6px 2px">Muitas buscas seguidas. Espere um instante.</div>';
+    if (!r.items.length) return '<div class="muted" style="font-size:13px;padding:6px 2px">Nada encontrado. Se você tem o código completo, digite-o e toque em Pedir.</div>';
+    return r.items.map(SALA.guestRow).join('');
+  },
+  viewJoin() {
+    const j = ui.join;
+    return `<div class="shell" style="justify-content:center"><div class="scroll pad" style="flex:none;max-height:100%;padding-top:24px;max-width:520px;width:100%;margin:0 auto">
+      <div class="logo" style="width:72px;height:72px;border-radius:20px">${logo(48)}</div>
+      <div style="font-size:24px;font-weight:800;letter-spacing:-.02em;margin-top:20px">Entrar na sala</div>
+      <div class="mono" style="font-size:20px;font-weight:700;margin-top:6px;letter-spacing:.08em">${esc(j.code)}</div>
+      <p style="margin:18px 0 4px;font-weight:700">Seu nome</p><div class="field"><input id="joinname" data-enter="joinGo" value="${esc(j.name)}" placeholder="Como você quer aparecer na fila" maxlength="30" autocomplete="off"></div>
+      <div class="hint" style="margin-bottom:16px">Você vai poder ver a fila e pedir músicas pelo nome ou pelo código.</div>
+      <div class="col g8">${btn('Entrar', 'joinGo', { cls: 'primary lg' })}${btn('Agora não', 'joinNo', { cls: 'text' })}</div></div></div>`;
+  },
+  viewGuest() {
+    const c = SALA.cfg(); const me = TV.devId();
+    const dot = SALA.st === 'on' ? 'ok' : (SALA.st === 'conn' ? 'unverified' : 'broken');
+    const n = (SALA.who.owner ? 1 : 0) + SALA.who.mods + SALA.who.guests;
+    const cur = SALA.queue[0]; const rest = SALA.queue.slice(1);
+    const row = (e, i) => `<div class="qrow"><img src="${thumbUrl(e.v)}" alt="" width="64" height="36" style="border-radius:8px;object-fit:cover;flex:none;background:var(--line)"><div class="fx1" style="min-width:0"><div class="ell jp" style="font-size:14px;font-weight:700">${esc(e.t)}</div><div class="ell muted" style="font-size:12px"><span class="jp">${esc(e.s)}</span> · ${esc(e.by || '')}</div></div>${e.dev === me ? ib('close', 'gRm', 'Tirar meu pedido', { s: 20, d: { q: e.q } }) : ''}</div>`;
+    return `<div class="shell"><div class="hdr"><h1 class="fx1">Sala ${esc(c.code)}</h1><span class="fx ac g6 muted" style="font-size:12px;font-weight:700"><span class="dot ${dot}"></span>${SALA.st === 'on' ? n + (n === 1 ? ' pessoa' : ' pessoas') : (SALA.st === 'conn' ? 'Conectando…' : 'Sem conexão')}</span></div>
+      <div class="scroll pad" data-sk="guest" style="padding-bottom:20px">
+        <div class="muted" style="font-size:13px;margin-bottom:8px">Você entrou como <b>${esc(SALA.name())}</b> · ${SALA.myCount()}/3 pedidos na fila</div>
+        <div class="fx g8"><div class="field fx1"><input id="gq" data-enter="gGo" enterkeyhint="search" placeholder="Buscar música, cantor ou código" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(SALA.gText || '')}"></div>${btn('Pedir', 'gGo', { cls: 'primary', style: 'height:48px' })}</div>
+        <div id="gres" style="margin-top:8px">${SALA.guestResults()}</div>
+        <div class="muted" style="font-size:12px;font-weight:700;margin:18px 0 8px">FILA${SALA.queue.length ? '' : ' · vazia'}</div>
+        ${cur ? `<div class="nowcard"><div class="k">AGORA</div><div class="fx g12" style="margin-top:8px"><img src="${thumbUrl(cur.v)}" alt="" width="112" height="63" style="border-radius:10px;object-fit:cover;flex:none;background:var(--line)"><div class="fx1"><div class="jp" style="font-size:16px;font-weight:700;line-height:1.25">${esc(cur.t)}</div><div class="muted" style="font-size:12px;margin-top:2px"><span class="jp">${esc(cur.s)}</span> · ${esc(cur.by || '')}</div></div></div></div>` : ''}
+        ${rest.map(row).join('')}
+        <div style="margin-top:18px">${btn('Sair da sala', 'salaLeave', { cls: 'text sm' })}</div>
+      </div></div>`;
+  },
+  /* ---------- cartão nos Ajustes ---------- */
+  card() {
+    const c = SALA.cfg(); const dot = !c ? 'unverified' : (SALA.st === 'on' ? 'ok' : (SALA.st === 'conn' ? 'unverified' : 'broken'));
+    const lbl = !c ? 'Fora da sala' : ({ owner: 'Dono', mod: 'Moderador', guest: 'Convidado' }[SALA.role()] + ' · ' + (SALA.st === 'on' ? 'conectado' : SALA.st === 'conn' ? 'conectando…' : 'sem conexão'));
+    const head = `<div class="fx ac g8"><h3 class="fx1">Fila compartilhada</h3><span class="fx ac g6 muted" style="font-size:12px;font-weight:700"><span class="dot ${dot}"></span>${lbl}</span></div>`;
+    const urlF = `<p style="margin-top:10px;font-weight:700">Endereço do Worker da sala</p><div class="field" style="margin-top:4px"><input id="salaurl" data-change="salaUrl" value="${esc(D.settings.salaUrl || '')}" placeholder="https://karatube-sala.seunome.workers.dev" autocapitalize="off" spellcheck="false"></div>`;
+    const nameF = `<p style="margin-top:10px;font-weight:700">Nome na sala</p><div class="field" style="margin-top:4px"><input id="salaname" data-change="salaName" value="${esc(D.settings.salaName || '')}" placeholder="${esc(SALA.name())}" maxlength="30" autocomplete="off"></div>`;
+    if (!c) return `<div class="card">${head}
+      <p>Uma fila só para todos os aparelhos. Quem cria a sala é o dono; aparelhos com o mesmo token do GitHub entram como moderadores; os convidados entram só com o código. Precisa do Worker da sala (veja o LEIA-ME-SALA).</p>${urlF}${nameF}
+      <div style="margin-top:10px">${btn('Criar sala (sou o dono)', 'salaCreate', { cls: 'primary', style: 'width:100%' })}</div>
+      <p style="margin-top:12px;font-weight:700">Entrar numa sala</p><div class="fx g8" style="margin-top:4px"><div class="field fx1"><input id="salacode" data-enter="salaJoin" placeholder="Código da sala" autocapitalize="characters" autocomplete="off" spellcheck="false" style="font-family:'JetBrains Mono',monospace;font-size:16px;letter-spacing:.06em"></div>${btn('Entrar', 'salaJoin', { style: 'height:48px' })}</div></div>`;
+    const n = (SALA.who.owner ? 1 : 0) + SALA.who.mods + SALA.who.guests; const own = SALA.role() === 'owner';
+    return `<div class="card">${head}
+      <div class="mono" style="font-size:26px;font-weight:800;letter-spacing:.1em;margin-top:10px">${esc(c.code)}</div>
+      <div class="muted" style="font-size:12px;margin-top:2px">${SALA.st === 'on' ? n + (n === 1 ? ' aparelho conectado' : ' aparelhos conectados') + (SALA.who.owner ? '' : ' · dono offline (sem TV)') : 'Sem conexão com a sala.'}${SALA.shared() ? ' · catálogo na sala: ' + SALA.ixN + ' versões' : ''}</div>
+      ${nameF}
+      <div class="fx g8" style="margin-top:10px">${btn('Copiar link', 'salaCopy', { cls: 'fx1', icon: 'share' })}${btn('Compartilhar', 'salaShare', { cls: 'fx1' })}</div>
+      ${own ? `<label class="fx ac g8" style="min-height:48px;margin-top:6px"><input type="checkbox" data-change="salaSearch" ${SALA.search ? 'checked' : ''} aria-label="Convidados podem pesquisar"><span class="fx1"><b>Convidados podem pesquisar</b> <span class="muted" style="font-size:12px">desligado: só pedem pelo código</span></span></label>
+      <div class="fx g8" style="margin-top:4px">${btn('Trocar código', 'salaNewCode', { cls: 'fx1' })}${btn('Encerrar sala', 'salaClose', { cls: 'fx1 danger' })}</div>` : ''}
+      <div style="margin-top:8px">${btn('Sair da sala', 'salaLeave', { cls: 'text sm' })}</div></div>`;
+  }
+};
+const salaShared = () => typeof SALA !== 'undefined' && SALA.shared();
+// o servidor decide a fila; nestes pontos o app só pede e espera a resposta
+function qSet(arr) { if (salaShared()) return SALA.setq(arr); D.queue = arr; save('queue'); return true; }
+
+/* ---- ações da interface ---- */
+Object.assign(ACT, {
+  salaCreate() {
+    if (!SALA.url()) { toast('Cole primeiro o endereço do Worker da sala.'); return; }
+    if (SALA.member()) return;
+    (async () => {
+      const code = SALA.newCode(), ownerKey = SALA.newKey(); const mod = await SALA.modKey();
+      const queue = D.queue.map(e => Object.assign({ q: e.q, code: e.code }, SALA.snapOf(e.code) || {})).filter(e => e.t);
+      D.settings.sala = { code, role: 'owner', ownerKey, synced: true };
+      SALA.createMsg = { create: true, owner: ownerKey, mod, queue, search: true };
+      save('settings'); SALA.connect(); render();
+    })();
+  },
+  salaJoin() {
+    const e = $('#salacode'); const code = (e ? e.value : '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length < 8) { toast('O código da sala tem 8 a 16 letras e números.'); return; }
+    if (!SALA.url()) { toast('Cole primeiro o endereço do Worker da sala.'); return; }
+    D.settings.sala = { code, role: 'guest' }; save('settings'); SALA.connect(); render();
+  },
+  joinGo() {
+    const j = ui.join; if (!j) return; const n = $('#joinname'); const name = (n ? n.value : j.name).trim();
+    if (!name) { toast('Digite o seu nome.'); return; }
+    D.settings.salaName = name; if (j.url) D.settings.salaUrl = j.url;
+    D.settings.sala = { code: j.code, role: 'guest' }; ui.join = null; save('settings'); SALA.connect(); render();
+  },
+  joinNo() { ui.join = null; render(); },
+  salaLeave() { if (SALA.shared() ? confirm('Sair da sala? A fila de agora fica como cópia neste aparelho.') : true) SALA.leave('Você saiu da sala.'); },
+  salaClose() {
+    if (!confirm('Encerrar a sala? Todos saem e o código deixa de valer. A fila fica como cópia neste aparelho.')) return;
+    SALA.send({ t: 'close' });
+  },
+  salaNewCode() {
+    if (!confirm('Trocar o código? Todos que estão na sala saem e precisam do código novo.')) return;
+    const c = SALA.cfg(); const queue = SALA.queue.slice();
+    SALA.send({ t: 'close' }, true);
+    SALA.drop(); const code = SALA.newCode();
+    (async () => {
+      const mod = await SALA.modKey();
+      D.settings.sala = { code, role: 'owner', ownerKey: c.ownerKey, synced: true };
+      SALA.createMsg = { create: true, owner: c.ownerKey, mod, queue, search: SALA.search }; save('settings'); SALA.connect(); render();
+      toast('Código novo: ' + code);
+    })();
+  },
+  async salaCopy() { try { await navigator.clipboard.writeText(SALA.link()); toast('Link copiado.'); } catch (e) { toast('Não consegui copiar. Código: ' + SALA.cfg().code); } },
+  async salaShare() {
+    const c = SALA.cfg();
+    if (navigator.share) { try { await navigator.share({ title: 'Sala do KaraTube', text: 'Entre na sala do karaokê. Código: ' + c.code, url: SALA.link() }); } catch (e) { } }
+    else ACT.salaCopy();
+  },
+  gAdd(d) { SALA.guestAdd(d.code); },
+  gGo() {
+    const e = $('#gq'); const v = (e ? e.value : '').trim(); if (!v) return;
+    if (/^\d{6}-?\d{2}$/.test(v)) SALA.guestAdd(v.length === 8 ? v.slice(0, 6) + '-' + v.slice(6) : v);
+    else { SALA.gText = v; SALA.guestInput(v); }
+  },
+  gRm(d) { SALA.rm(d.q); }
+});
+function salaInit() {
+  const m = /^#sala=([A-Za-z0-9]+)(?:&w=(.*))?$/.exec(location.hash || '');
+  if (m) {
+    history.replaceState(null, '', location.pathname + location.search);
+    const code = m[1].toUpperCase(); let url = ''; try { url = decodeURIComponent(m[2] || ''); } catch (e) { }
+    const cur = SALA.cfg();
+    if (!cur || cur.code !== code) {
+      if (cur && !confirm('Você já está na sala ' + cur.code + '. Sair e entrar na ' + code + '?')) { SALA.resume(); return; }
+      if (cur) SALA.leave();
+      if (/^https:\/\//i.test(url) || /^http:\/\/localhost/i.test(url)) ui.join = { code, url: url.replace(/\/+$/, ''), name: D.settings.salaName || (devInfo() && devInfo().name) || '' };
+      else if (SALA.url()) ui.join = { code, url: '', name: D.settings.salaName || '' };
+      else toast('Este link de sala não tem o endereço do Worker.');
+    }
+  }
+  SALA.resume();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && SALA.cfg() && !SALA.live()) { SALA.tries = 0; SALA.connect(); } });
+  setInterval(() => SALA.ixCheck(), 60000);
+}
 
 'use strict';
 /* =====================================================================

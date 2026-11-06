@@ -1,0 +1,12 @@
+# Configuração do Worker da sala (fila compartilhada). Uso: npx wrangler deploy -c wrangler-sala.toml
+name = "karatube-sala"
+main = "worker-sala.js"
+compatibility_date = "2025-01-01"
+
+[[durable_objects.bindings]]
+name = "SALA"
+class_name = "Sala"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Sala"]
