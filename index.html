@@ -142,6 +142,15 @@ input[type=checkbox],input[type=radio]{width:22px;height:22px;flex:none;accent-c
 .dot{display:inline-block;width:9px;height:9px;border-radius:5px;flex:none}
 .dot.ok{background:var(--ok)}.dot.unverified{background:var(--muted)}.dot.broken{background:var(--danger)}
 .mini{font-size:11px;font-weight:700;padding:3px 8px;border-radius:10px;background:var(--surface2)}
+.mbox{margin:4px 0 10px;padding:12px;border-radius:16px;background:var(--surface2);border:1px solid var(--line);border-left:4px solid var(--accent)}
+.mbox .mh{display:flex;flex-direction:column;gap:2px;margin-bottom:10px;font-size:15px}
+.mbox .mh .muted{font-size:12px;line-height:1.35}
+.mbox.min{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:13px}
+.mbox .srow{cursor:pointer}
+.mpick{flex:none;font-size:11px;font-weight:800;line-height:1.15;text-align:center;color:var(--accent);padding:6px 8px;border:1px solid var(--accent);border-radius:10px}
+.mgcard{flex:1;min-width:0;padding:10px;border-radius:14px;border:2px solid var(--line);background:var(--surface);display:flex;flex-direction:column;gap:6px;text-align:left;color:var(--text)}
+.mgcard.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.mgcard .mgart{width:100%;aspect-ratio:1;max-width:96px;border-radius:10px;object-fit:cover;background:var(--surface2)}
 details.box{border:1.5px dashed var(--line);border-radius:14px;padding:0 14px;margin-bottom:10px}
 details.box summary{min-height:48px;display:flex;align-items:center;font-weight:700;font-size:14px;list-style:none}
 details.box summary::-webkit-details-marker{display:none}
@@ -256,7 +265,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.16.0",APP_BUILD=1793922366,MGR=false;
+const APP_VERSION="1.17.0",APP_BUILD=1793997663,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -328,14 +337,14 @@ const D = {
   settings: { theme: 'system', device: null, lastBackup: null, snoozeUntil: 0, created: now(), tvCode: '', tvName: '', bases: ['musicbrainz', 'animethemes', 'lrclib'], tvPaired: false }
 };
 const KEYS = ['songs', 'versions', 'lists', 'history', 'queue', 'settings', 'sync'];
-const X = { song: {}, ver: {}, vid: {}, vers: {}, text: {} };
+const X = { song: {}, ver: {}, vid: {}, vers: {}, text: {}, mk: {} };
 const LSP = MGR ? 'ktm:' : 'kt:';
 let storageMode = 'idb';
 let persistent = null;
 
 function reindex() {
-  X.song = {}; X.ver = {}; X.vid = {}; X.vers = {}; X.text = {};
-  D.songs.forEach(s => { X.song[s.id] = s; X.vers[s.id] = []; });
+  X.song = {}; X.ver = {}; X.vid = {}; X.vers = {}; X.text = {}; X.mk = {};
+  D.songs.forEach(s => { X.song[s.id] = s; X.vers[s.id] = []; X.mk[s.id] = songKeys(s); });
   D.versions.forEach(v => {
     X.ver[v.code] = v;
     if (v.vid) (X.vid[v.vid] = X.vid[v.vid] || []).push(v);
@@ -429,6 +438,93 @@ function nextVersionCode(songId) {
   let max = 0;
   (X.vers[songId] || []).forEach(v => { const k = parseInt(v.code.split('-')[1], 10); if (k > max) max = k; });
   return songId + '-' + pad(max + 1, 2);
+}
+/* ---------- correspondências: achar músicas parecidas antes de criar uma nova ---------- */
+const KARAOKE_W = 'karaoke|karaokê|カラオケ|off ?vocal|オフボーカル|instrumental|playback|backing track|with lyrics|lyrics|inst\\.?|mr|full|hd|hq|4k|guide vocal|ガイドボーカル';
+const reBracket = /\s*[\(\[（【「『][^\)\]）】」』]*[\)\]）】」』]\s*/g;
+const reKaraokeEnd = new RegExp('[\\s\\-–—|:]*(?:' + KARAOKE_W + ')(?:\\s+(?:version|ver\\.?|ver))?\\s*$', 'i');
+// chave de comparação: sem acento, caixa nem pontuação (mantém letras, números e marcas do japonês)
+const tKey = t => norm(t).replace(/[^\p{L}\p{N}\p{M}]+/gu, ' ').trim();
+// o mesmo, sem o que vem entre parênteses/colchetes e sem sufixos de karaokê
+function tCore(t) {
+  let x = String(t || '').replace(reBracket, ' '), ant;
+  do { ant = x; x = x.replace(reKaraokeEnd, '').trim(); } while (x !== ant);
+  return tKey(x);
+}
+// complemento da versão: o último trecho entre parênteses/colchetes que não é só "karaokê" ("Hey Ho (Acústica)" → "Acústica")
+function complementOf(t) {
+  const m = String(t || '').match(/[\(\[（【「『]([^\)\]）】」』]*)[\)\]）】」』]\s*$/);
+  if (!m) return '';
+  const c = m[1].trim();
+  return c && !new RegExp('^(?:' + KARAOKE_W + ')(?:\\s+(?:version|ver\\.?|ver))?$', 'i').test(c) ? c : '';
+}
+function songKeys(s) {
+  const ts = [s.title, s.roman].filter(Boolean);
+  return { full: uniq(ts.map(tKey).filter(Boolean)), core: uniq(ts.map(tCore).filter(Boolean)), sing: uniq((s.singers || []).map(tKey).filter(Boolean)) };
+}
+function editDist(a, b) {
+  a = Array.from(a); b = Array.from(b);
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+function similar(a, b) {
+  const la = Array.from(a).length, lb = Array.from(b).length, mx = Math.max(la, lb);
+  if (mx < 4 || Math.abs(la - lb) > mx * 0.35) return 0;
+  return 1 - editDist(a, b) / mx;
+}
+function containsKey(a, b) {   // o menor dentro do maior (por palavras; sem espaço, por trecho)
+  const [sh, lo] = a.length <= b.length ? [a, b] : [b, a];
+  if (Array.from(sh).length < 4) return false;
+  return sh.includes(' ') || lo.includes(' ') ? (' ' + lo + ' ').includes(' ' + sh + ' ') : lo.includes(sh);
+}
+const tokenSet = k => new Set(k.split(' ').filter(w => w.length > 1));
+// q = { titles: [...], singers: [...] }  →  [{ id, score, why: ['mesmo título', 'mesmo cantor'], exact }]
+function matchSongs(q, o = {}) {
+  const qt = uniq((q.titles || []).map(t => ({ f: tKey(t), c: tCore(t) })).filter(x => x.f).map(x => x.f + '\u0001' + x.c)).map(x => { const p = x.split('\u0001'); return { f: p[0], c: p[1] }; });
+  const qs = uniq((q.singers || []).map(tKey).filter(Boolean));
+  if (!qt.length) return [];
+  const out = [];
+  D.songs.forEach(s => {
+    if (o.skip && o.skip === s.id) return;
+    const k = X.mk[s.id] || songKeys(s); let lvl = 0, tpts = 0, why = '';
+    const set = (p, w, y) => { if (p > tpts) { tpts = p; why = w; lvl = y; } };
+    qt.forEach(a => {
+      if (k.full.includes(a.f)) return set(100, 'mesmo título', 3);
+      if (a.c && k.core.includes(a.c)) return set(85, 'mesmo título sem o complemento', 2);
+      k.core.forEach(b => {
+        if (!a.c || !b) return;
+        if (containsKey(a.c, b)) set(60, 'um título contém o outro', 1);
+        else { const sm = similar(a.c, b); if (sm >= 0.75) set(Math.round(sm * 55), 'título parecido', 1); }
+      });
+    });
+    let sing = 0, swhy = '';
+    if (qs.length) {
+      if (qs.some(a => k.sing.includes(a))) { sing = 30; swhy = 'mesmo cantor'; }
+      else if (qs.some(a => k.sing.some(b => containsKey(a, b)))) { sing = 18; swhy = 'cantor parecido'; }
+    }
+    if (!tpts && sing >= 30) {   // mesmo cantor e título com palavras em comum
+      const best = qt.reduce((m, a) => { const ta = tokenSet(a.c || a.f); return Math.max(m, ...k.core.map(b => { const tb = tokenSet(b); if (ta.size < 2 || tb.size < 2) return 0; let n = 0; ta.forEach(w => { if (tb.has(w)) n++; }); return n / Math.max(ta.size, tb.size); }), 0); }, 0);
+      if (best >= 0.5) set(30, 'título semelhante', 1);
+    }
+    if (!tpts) return;
+    const total = tpts + sing; if (total < 45) return;
+    const reasons = [why]; if (swhy) reasons.push(swhy); else if (qs.length && lvl >= 2) reasons.push('outro cantor');
+    out.push({ id: s.id, score: total, why: reasons, exact: lvl === 3 && sing >= 30 });
+  });
+  out.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1));
+  return out.slice(0, o.max || 12);
+}
+// músicas parecidas com o que está no rascunho (título, romaji, cantor e também o título do vídeo)
+function matchFor(d) {
+  const titles = [d.title, d.roman];
+  const yt = cleanTitle(d.ytTitle || '');
+  if (yt) { titles.push(yt); yt.split(/\s+[-–—|\/／]\s+/).forEach(p => { if (p.trim()) titles.push(p.trim()); }); }
+  return matchSongs({ titles, singers: [d.singer].concat(d.aliases || []) });
 }
 const songOf = v => X.song[v.song];
 const bestVersion = songId => { const vs = X.vers[songId] || []; return vs.find(v => v.link === 'ok') || vs.find(v => v.link !== 'broken') || vs[0]; };
@@ -1660,6 +1756,39 @@ function songResults(d) {
   if (!res.length) return `<div class="hint">Nenhuma música encontrada.</div>`;
   return `<div style="margin-top:8px">${res.map(s => `<div class="srow" role="button" tabindex="0" data-act="pickSong" data-id="${s.id}">${songThumb(s, bestVersion(s.id), 44, 20, 10)}<div class="fx1"><div class="ell jp t" style="font-size:15px">${esc(s.title)}</div><div class="r ell mono" style="font-size:12px">${s.id} · ${esc(singersStr(s))}</div></div></div>`).join('')}</div>`;
 }
+/* ---------- "já existe?": músicas parecidas com o que está sendo cadastrado ---------- */
+function matchBox(d) {
+  if (d.mode !== 'new') return '';
+  const res = matchFor(d); if (!res.length) return '';
+  if (d.matchNew) return `<div class="mbox min"><span class="fx1">Cadastrando como <b>música nova</b></span>${btn('Ver ' + res.length + (res.length === 1 ? ' parecida' : ' parecidas'), 'matchShow', { cls: 'text sm' })}</div>`;
+  const show = d.matchAll ? res : res.slice(0, 5);
+  const rows = show.map(r => {
+    const s = X.song[r.id]; const n = (X.vers[s.id] || []).length;
+    return `<div class="srow" role="button" tabindex="0" data-act="pickMatch" data-id="${s.id}" style="margin:0 0 6px">${songThumb(s, bestVersion(s.id), 44, 20, 10)}<div class="fx1" style="min-width:0"><div class="ell jp t" style="font-size:15px">${esc(s.title)}</div><div class="r ell mono" style="font-size:12px">${s.id} · ${esc(singersStr(s))} · ${n} ${n === 1 ? 'versão' : 'versões'}</div>
+      <div class="chips" style="gap:4px;margin-top:4px">${r.why.map(w => `<span class="mini">${esc(w)}</span>`).join('')}</div></div><span class="mpick">É versão<br>desta</span></div>`;
+  }).join('');
+  return `<div class="mbox"><div class="mh"><b>Já existe no catálogo?</b><span class="muted">Se for outra versão de uma destas, escolha-a. Assim não cria música repetida.</span></div>${rows}
+    ${res.length > show.length ? btn('Ver mais ' + (res.length - show.length), 'matchMore', { cls: 'text sm' }) : ''}
+    ${btn('Nenhuma delas: é música nova', 'matchNew', { cls: 'outline', style: 'width:100%;margin-top:4px' })}</div>`;
+}
+let matchTimer = null;
+function refreshMatch() {
+  clearTimeout(matchTimer);
+  matchTimer = setTimeout(() => { const e = document.getElementById('matchbox'); if (e && ui.draft) e.innerHTML = matchBox(ui.draft); }, 250);
+}
+// cantores do vídeo que a música escolhida ainda não tem (para oferecer "outra grafia")
+function newSingersFor(d) {
+  const s = d.mode === 'version' && d.songCode && X.song[d.songCode]; if (!s) return [];
+  const have = (s.singers || []).map(tKey);
+  return uniq([d.singer].concat(d.aliases || []).map(x => String(x || '').trim()).filter(x => x && !have.includes(tKey(x))));
+}
+function singerNote(d) {
+  const ns = newSingersFor(d); if (!ns.length) return '';
+  const s = X.song[d.songCode];
+  return `<div class="warn" style="margin:12px 0 0"><div style="font-size:14px;font-weight:700">O cantor do vídeo (${ns.map(esc).join(', ')}) não está nas grafias de ${s.id}</div>
+    <div class="muted" style="font-size:12px;margin-top:4px">${esc(singersStr(s))}. Se for o mesmo artista com outra grafia, adicione. Se for outro cantor, deixe como está (ou cadastre como música nova).</div>
+    <div style="margin-top:8px">${btn(d.addSingers ? '✓ Será adicionado como outra grafia' : 'Adicionar como outra grafia', 'toggleAddSingers', { cls: d.addSingers ? 'primary sm' : 'sm' })}</div></div>`;
+}
 function lockedView(titulo) {
   const on = ghOn();
   return `<div class="hdr"><h1>${titulo}</h1></div><div class="empty"><div class="big">${ic('warn', 52, 1.6)}</div><h3>Ligue a sincronização antes de cadastrar</h3>
@@ -1682,14 +1811,15 @@ function viewForm() {
   const online = showSong ? `<div style="margin-top:12px">${btn('Buscar online', 'onlineOpen', { cls: 'outline lg', icon: 'globe', is: 22, style: 'width:100%' })}</div>` : '';
   let body;
   if (ui.wide) {
-    const left = d.mode === 'version' ? songPicker(d) : (showSong ? `<div style="font-size:16px;font-weight:800;margin-bottom:10px">Música</div>${online.replace('margin-top:12px', 'margin-top:0;margin-bottom:6px')}${secSong(d)}` : '');
+    const left = d.mode === 'version' ? songPicker(d) + singerNote(d) : (showSong ? `<div style="font-size:16px;font-weight:800;margin-bottom:10px">Música</div>${online.replace('margin-top:12px', 'margin-top:0;margin-bottom:6px')}${secSong(d)}` : '');
     const right = showVer ? `<div style="font-size:16px;font-weight:800;margin-bottom:10px">Versão</div>${secUrl(d)}${secVer(d)}` : '';
     body = `<div class="cols2" style="${left && right ? '' : 'grid-template-columns:minmax(0,640px)'}">${left ? `<div>${left}</div>` : ''}${right ? `<div>${right}</div>` : ''}</div>`;
   } else {
-    body = `${d.mode === 'version' ? songPicker(d) : ''}${showVer ? `<div style="${d.mode === 'version' ? 'margin-top:14px' : ''}">${secUrl(d)}</div>` : ''}${online}${showSong ? `<div style="margin-top:8px">${secSong(d)}</div>` : ''}${showVer ? `<div style="margin-top:8px">${secVer(d)}</div>` : ''}`;
+    body = `${d.mode === 'version' ? songPicker(d) + singerNote(d) : ''}${showVer ? `<div style="${d.mode === 'version' ? 'margin-top:14px' : ''}">${secUrl(d)}</div>` : ''}${online}${showSong ? `<div style="margin-top:8px">${secSong(d)}</div>` : ''}${showVer ? `<div style="margin-top:8px">${secVer(d)}</div>` : ''}`;
   }
   const danger = edit ? `<div class="card" style="margin-top:20px"><h3 style="color:var(--danger)">Zona de perigo</h3><div class="col g8" style="margin-top:10px">${d.scope === 'version' ? btn('Excluir esta versão', 'delVer', { cls: 'dangerOutline', icon: 'trash', d: { code: d.verCode } }) : ''}${btn('Excluir a música e todas as versões', 'delSong', { cls: 'dangerOutline', d: { id: d.songCode } })}</div></div>` : '';
-  return `${top}${head}<div class="scroll pad" data-sk="form" style="padding-top:6px;padding-bottom:20px">${body}${danger}</div>`;
+  const mbox = d.mode === 'new' ? `<div id="matchbox" style="margin-bottom:6px">${matchBox(d)}</div>` : '';
+  return `${top}${head}<div class="scroll pad" data-sk="form" style="padding-top:6px;padding-bottom:20px">${mbox}${body}${danger}</div>`;
 }
 
 /* ---------- gravar o rascunho ---------- */
@@ -1723,6 +1853,10 @@ function saveDraft() {
   if (needSong && !d.singer.trim()) return toast('Falta o cantor.');
   if (needVer && !d.vid) return toast(d.url ? 'Não reconheci o link do YouTube.' : 'Falta a URL do YouTube.');
   if (needVer && !d.dupIgnored && (X.vid[d.vid] || []).some(v => v.code !== d.verCode)) return toast('Esta URL já está no catálogo. Escolha uma opção no aviso.');
+  if (d.mode === 'new') {   // mesma música e cantor já cadastrados? pergunta antes de criar outra
+    const ex = matchFor(d).find(r => r.exact);
+    if (ex) { const o = X.song[ex.id]; if (!confirm('Já existe ' + o.id + ' · ' + o.title + ' (' + singersStr(o) + ') com este título e cantor.' + String.fromCharCode(10, 10) + 'Cadastrar como música NOVA mesmo assim?' + String.fromCharCode(10) + '(Cancelar volta ao cadastro; use "É versão desta" para criar só uma versão.)')) return; }
+  }
   let songId = d.songCode, msg;
   try {
     if (d.mode === 'new') {
@@ -1730,7 +1864,8 @@ function saveDraft() {
       const v = verFromDraft(d, { code: s.id + '-01', song: s.id, sung: 0, lastSung: null, created: now() }); D.versions.push(v); msg = 'Salvo: ' + v.code;
     } else if (d.mode === 'version') {
       const v = verFromDraft(d, { code: nextVersionCode(songId), song: songId, sung: 0, lastSung: null, created: now() }); D.versions.push(v);
-      X.song[songId].updated = now(); msg = 'Salvo: ' + v.code;
+      const so = X.song[songId]; if (d.addSingers) newSingersFor(d).forEach(a => so.singers.push(a));
+      so.updated = now(); msg = 'Salvo: ' + v.code;
     } else {
       if (needSong) songFromDraft(d, X.song[songId]);
       if (needVer) verFromDraft(d, X.ver[d.verCode]);
@@ -1981,9 +2116,43 @@ SHEETS.songMenu = t => {
       ${menuRow('plus', 'Nova versão', 'newVersion', { id: s.id }, { sub: 'Vai ser o ' + nextVersionCode(s.id) })}
       ${menuRow('list', 'Adicionar a uma lista', 'addToList', { id: s.id })}
       ${menuRow('star', s.fav ? 'Tirar dos favoritos' : 'Favoritar', 'fav', { id: s.id })}
+      ${menuRow('copy', 'Juntar com outra música…', 'mergeStart', { id: s.id }, { sub: 'Era repetida? Move as versões para a outra' })}
       <div style="height:1px;background:var(--line);margin:4px 20px"></div>
       ${menuRow('trash', 'Excluir música', 'delSong', { id: s.id }, { dng: true, sub: 'Apaga também ' + ((X.vers[s.id] || []).length === 1 ? 'a versão' : 'as ' + (X.vers[s.id] || []).length + ' versões') })}
     </div>`
+  };
+};
+/* juntar duas músicas: 1) escolher a outra (as mais parecidas já aparecem) 2) conferir e confirmar */
+function mergeRows(t) {
+  const s = X.song[t.id]; const q = norm(t.q || '');
+  const list = q ? D.songs.filter(x => x.id !== s.id && (X.text[x.id] || '').includes(q)).slice(0, 8)
+    : matchSongs({ titles: [s.title, s.roman], singers: s.singers || [] }, { skip: s.id, max: 8 }).map(r => X.song[r.id]);
+  if (!list.length) return `<div class="hint">${q ? 'Nenhuma música encontrada.' : 'Não achei músicas parecidas. Digite o título, o cantor ou o código da outra.'}</div>`;
+  return (q ? '' : '<div class="lbl" style="margin:0 0 6px">Mais parecidas</div>') + list.map(x => `<div class="srow" role="button" tabindex="0" data-act="mergePickSong" data-id="${x.id}">${songThumb(x, bestVersion(x.id), 44, 20, 10)}<div class="fx1" style="min-width:0"><div class="ell jp t" style="font-size:15px">${esc(x.title)}</div><div class="r ell mono" style="font-size:12px">${x.id} · ${esc(singersStr(x))} · ${(X.vers[x.id] || []).length} ${(X.vers[x.id] || []).length === 1 ? 'versão' : 'versões'}</div></div></div>`).join('');
+}
+SHEETS.mergePick = t => {
+  const s = X.song[t.id];
+  return {
+    label: 'Juntar músicas', big: true,
+    html: shHead('Juntar com qual música?', `${s.id} · ${esc(s.title)}`) + `<div class="sh-b" style="padding-top:12px"><label class="searchbox">${ic('search', 20)}<input id="mpq" value="${esc(t.q || '')}" placeholder="Título, cantor ou código" autocomplete="off"></label><div id="mplist" style="margin-top:10px">${mergeRows(t)}</div></div>`
+  };
+};
+SHEETS.merge = t => {
+  const a = X.song[t.a], b = X.song[t.b]; const keep = t.keep === 'a' ? a : b, drop = t.keep === 'a' ? b : a;
+  const card = (s, v, tag) => { const n = (X.vers[s.id] || []).length; return `<button class="mgcard ${t.keep === v ? 'sel' : ''}" data-act="mergeKeep" data-v="${v}" aria-pressed="${t.keep === v}">${songThumb(s, bestVersion(s.id), 56, 24, 12)}<div class="jp ell" style="font-weight:800;font-size:14px;max-width:100%">${esc(s.title)}</div><div class="muted ell" style="font-size:12px;max-width:100%">${esc(singersStr(s))}</div><div class="mono" style="font-size:12px">${s.id} · ${n} ${n === 1 ? 'versão' : 'versões'}</div><div style="font-size:12px;font-weight:800;color:${t.keep === v ? 'var(--accent)' : 'var(--muted)'}">${t.keep === v ? 'Fica com este código' : 'Será apagada'}</div></button>`; };
+  let artSec = '';
+  if (keep.art && drop.art && keep.art !== drop.art) {
+    const opt = (v, s, lb) => `<button class="mgcard ${t.art === v ? 'sel' : ''}" data-act="mergeArt" data-v="${v}" aria-pressed="${t.art === v}" style="align-items:center"><img class="mgart" src="${esc(s.art)}" alt="Capa de ${s.id}"><div style="font-size:12px;font-weight:800">${lb}</div><div class="mono muted" style="font-size:11px">${s.id}</div></button>`;
+    artSec = `<div class="lbl" style="margin:14px 0 6px">As duas têm capa. Qual fica?</div><div class="fx g8">${opt('keep', keep, 'Capa de ' + keep.id)}${opt('drop', drop, 'Capa de ' + drop.id)}</div>`;
+  } else if (!keep.art && drop.art) artSec = `<div class="hint" style="margin-top:10px">A capa de ${drop.id} passa para ${keep.id}.</div>`;
+  const det = mergeEffects(keep.id, drop.id);
+  return {
+    label: 'Juntar músicas', big: true,
+    html: shHead('Juntar duas músicas', 'Escolha qual código fica. A outra é apagada.') + `<div class="sh-b" style="padding-top:12px"><div class="fx g8">${card(a, 'a')}${card(b, 'b')}</div>${artSec}
+      <div class="lbl" style="margin:14px 0 4px">O que vai acontecer</div>${det.map(x => `<div class="fx g10" style="padding:8px 0;border-top:1px solid var(--line);font-size:13px;line-height:1.4"><span class="muted" style="display:flex;margin-top:1px">${ic('check', 16)}</span><span class="fx1">${x}</span></div>`).join('')}
+      <div class="hint" style="margin-top:8px">Fica um aviso com “Desfazer” por 10 segundos. Antes de juntar muita coisa, vale compartilhar um backup.</div>
+      <div style="margin-top:8px">${btn('Compartilhar backup antes', 'share', { cls: 'text sm' })}</div></div>
+      ${shFoot(btn('Cancelar', 'closeSheet', { cls: 'lg' }) + btn('Juntar', 'doMerge', { cls: 'danger grow lg' }))}`
   };
 };
 SHEETS.verMenu = t => {
@@ -2170,6 +2339,45 @@ function purgeSong(id) {
   (X.vers[id] || []).slice().forEach(v => purgeVersion(v.code));
   D.songs = D.songs.filter(s => s.id !== id);
 }
+/* ---------- juntar duas músicas (a "sobra" entra na "mantida") ---------- */
+const MERGE_FIELDS = { roman: 'título romanizado', lang: 'idioma', origin: 'origem', year: 'ano', lyric: 'letra', lyricRoman: 'letra romanizada' };
+function mergeCodes(keepId, dropId) {   // códigos novos das versões da sobra, em sequência depois das da mantida
+  let max = 0; (X.vers[keepId] || []).forEach(v => { const n = parseInt(v.code.split('-')[1], 10); if (n > max) max = n; });
+  const map = {}; (X.vers[dropId] || []).forEach(v => { max++; map[v.code] = keepId + '-' + pad(max, 2); });
+  return map;
+}
+function mergeEffects(keepId, dropId) {
+  const k = X.song[keepId], d = X.song[dropId], out = [];
+  const dv = X.vers[dropId] || [], vmap = mergeCodes(keepId, dropId);
+  out.push(dv.length ? `${dv.length === 1 ? 'A versão' : 'As ' + dv.length + ' versões'} de ${dropId} ${dv.length === 1 ? 'passa' : 'passam'} para ${keepId}: ${dv.map(v => v.code + ' → ' + vmap[v.code]).join(', ')}.` : `${dropId} não tem versões.`);
+  const sung = dv.reduce((a, v) => a + (v.sung || 0), 0); if (sung) out.push(`O histórico (${sung}× cantada) acompanha as versões.`);
+  const ls = D.lists.filter(l => (l.items || []).some(c => vmap[c])); if (ls.length) out.push('Nas listas ' + ls.map(l => '“' + esc(l.name) + '”').join(', ') + ', as versões passam a ser de ' + keepId + '.');
+  const cv = D.songs.filter(x => x.coverOf === dropId); if (cv.length) out.push(`Os covers ${cv.map(c => c.id).join(', ')} passam a apontar para ${keepId}.`);
+  const have = (k.singers || []).map(tKey), ns = (d.singers || []).filter(a => a && !have.includes(tKey(a))); if (ns.length) out.push('Entram como outras grafias: ' + ns.map(esc).join(', ') + '.');
+  const fill = Object.keys(MERGE_FIELDS).filter(f => !k[f] && d[f]).map(f => MERGE_FIELDS[f]); if (fill.length) out.push('Campos vazios preenchidos com os de ' + dropId + ': ' + fill.join(', ') + '.');
+  if (d.note && d.note !== k.note) out.push('A nota pessoal de ' + dropId + ' é somada à de ' + keepId + '.');
+  out.push(`${dropId} é apagada e o código não é reaproveitado.`);
+  return out;
+}
+function mergeSongs(keepId, dropId, artFrom) {
+  const k = X.song[keepId], d = X.song[dropId]; if (!k || !d || keepId === dropId) return;
+  const t = now(), vmap = mergeCodes(keepId, dropId);
+  D.versions.forEach(v => { const c = vmap[v.code]; if (c) { v.code = c; v.song = keepId; v.updated = t; } });
+  D.lists.forEach(l => { if ((l.items || []).some(c => vmap[c])) { l.items = uniq(l.items.map(c => vmap[c] || c)); l.updated = t; } });
+  D.history.forEach(h => { if (vmap[h.code]) h.code = vmap[h.code]; });
+  D.queue.forEach(q => { if (vmap[q.code]) q.code = vmap[q.code]; });
+  const have = new Set((k.singers || []).map(tKey)); k.singers = k.singers || [];
+  (d.singers || []).forEach(a => { if (a && !have.has(tKey(a))) { k.singers.push(a); have.add(tKey(a)); } });
+  Object.keys(MERGE_FIELDS).forEach(f => { if (!k[f] && d[f]) k[f] = d[f]; });
+  if (d.note && d.note !== k.note) k.note = k.note ? k.note + String.fromCharCode(10) + d.note : d.note;
+  const tk = tKey(d.title); if (tk && tk !== tKey(k.title) && tk !== tKey(k.roman)) k.note = (k.note ? k.note + String.fromCharCode(10) : '') + 'Outro título: ' + d.title;
+  k.fav = !!(k.fav || d.fav); k.created = Math.min(k.created || t, d.created || t);
+  if (!k.coverOf && d.coverOf && d.coverOf !== keepId) k.coverOf = d.coverOf;
+  D.songs.forEach(s => { if (s.coverOf === dropId) { s.coverOf = s.id === keepId ? '' : keepId; s.updated = t; } });
+  if (d.art && (artFrom === 'drop' || !k.art)) k.art = d.art;
+  k.updated = t;
+  D.songs = D.songs.filter(s => s.id !== dropId);
+}
 function setArt(url) {
   const x = ui.draft; x.art = url; render();
   shrinkImage(url, 420).then(d => { if (ui.draft === x && x.art === url) { x.art = d; render(); } }).catch(() => { /* fica só o link */ });
@@ -2301,6 +2509,21 @@ const ACT = {
   copyLink(d) { const v = X.ver[d.code]; try { navigator.clipboard.writeText(v.url || watchUrl(v.vid)); toast('Link copiado'); } catch (e) { toast('Não consegui copiar.'); } ui.sheets.pop(); render(); },
   delSong(d) { openSheet({ type: 'confirm', kind: 'song', id: d.id }); },
   delVer(d) { openSheet({ type: 'confirm', kind: 'ver', code: d.code }); },
+  mergeStart(d) { ui.sheets = []; openSheet({ type: 'mergePick', id: d.id, q: '' }); },
+  mergePickSong(d) {
+    const a = sh().id, b = d.id; ui.sheets.pop();
+    const na = (X.vers[a] || []).length, nb = (X.vers[b] || []).length;
+    openSheet({ type: 'merge', a, b, keep: na > nb ? 'a' : 'b', art: 'keep' });
+  },
+  mergeKeep(d) { sh().keep = d.v; sh().art = 'keep'; render(); },
+  mergeArt(d) { sh().art = d.v; render(); },
+  doMerge() {
+    const t = sh(); const keepId = t.keep === 'a' ? t.a : t.b, dropId = t.keep === 'a' ? t.b : t.a;
+    const k = X.song[keepId], d = X.song[dropId]; if (!k || !d) return;
+    const artFrom = t.art; ui.sheets = [];
+    undoable('Músicas juntas em ' + keepId + ' · ' + k.title, () => mergeSongs(keepId, dropId, artFrom));
+    if (ui.draft) ui.draft = null; ui.songSel = keepId; ui.tab = 'cat'; render();
+  },
   delList(d) { openSheet({ type: 'confirm', kind: 'list', id: d.id }); },
   doDel() {
     const t = sh(); ui.sheets = [];
@@ -2387,6 +2610,18 @@ const ACT = {
   covPick(d) { ui.draft.coverOf = d.id; render(); },
   pickSong(d) { ui.draft.songCode = d.id; render(); },
   clearSong() { ui.draft.songCode = null; ui.draft.songQ = ''; render(); },
+  /* "já existe?" */
+  pickMatch(d) {
+    const x = ui.draft, s = X.song[d.id]; if (!x || !s) return;
+    const comp = complementOf(x.ytTitle) || complementOf(x.title);
+    x.mode = 'version'; x.songCode = s.id; x.addSingers = false; x.ret = null;
+    if (comp && !x.vnote) x.vnote = comp;
+    render(); toast('Será uma nova versão de ' + s.id + ' · ' + s.title);
+  },
+  matchNew() { ui.draft.matchNew = true; render(); },
+  matchShow() { ui.draft.matchNew = false; render(); },
+  matchMore() { ui.draft.matchAll = true; render(); },
+  toggleAddSingers() { ui.draft.addSingers = !ui.draft.addSingers; render(); },
   refreshYT() { const x = ui.draft; x.vid = parseVid(x.url); if (!x.vid) return toast('Cole um link do YouTube primeiro.'); loadYT(true); },
   clearUrl() { const x = ui.draft; x.url = ''; x.vid = ''; x.ytTitle = ''; x.channel = ''; x.ytState = 'idle'; x.dupIgnored = false; render(); },
   dupIgnore() { ui.draft.dupIgnored = true; render(); },
@@ -2470,6 +2705,7 @@ document.addEventListener('input', e => {
   if (t.id === 'q') { ui.query = t.value; ui.limit = 150; updateList(); const c = $('.qclear'); if (c) c.hidden = !t.value; return; }
   if (t.id === 'jumpIn') { const s = sh(); s.v = t.value; const m = jumpMatch(t.value); $('#jumpres').innerHTML = jumpResHtml(m); const b = $('.sh-f .btn.primary'); if (b) b.disabled = !m; return; }
   if (t.id === 'onq') { sh().q = t.value; return; }
+  if (t.id === 'mpq') { const s = sh(); s.q = t.value; const l = $('#mplist'); if (l) l.innerHTML = mergeRows(s); return; }
   if (t.id === 'nlname') { sh().name = t.value; return; }
   if (t.id === 'lpq') { const s = sh(); s.q = t.value; const l = D.lists.find(x => x.id === s.id); const q = norm(s.q); const have = new Set(l.items.map(c => (X.ver[c] || {}).song)); $('#lplist').innerHTML = lpRows(sortSongs(D.songs.filter(x => !q || (X.text[x.id] || '').includes(q)), 'code', 'asc').slice(0, 120), have, s); return; }
   if (t.id === 'f-aliasIn' && ui.draft) {
@@ -2481,6 +2717,7 @@ document.addEventListener('input', e => {
   const f = t.dataset && t.dataset.f;
   if (f && ui.draft) {
     ui.draft[f] = t.value;
+    if (f === 'title' || f === 'roman' || f === 'singer') refreshMatch();
     if (f === 'url') { clearTimeout(urlTimer); urlTimer = setTimeout(onUrlInput, 350); }
     else if (f === 'origin' || f === 'key' || f === 'singer') updSug(f);
     else if (f === 'coverOf') { const c = $('#covres'); if (c) c.innerHTML = coverResults(); }
