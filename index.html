@@ -265,7 +265,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.19.0",APP_BUILD=1794079845,MGR=false;
+const APP_VERSION="1.19.1",APP_BUILD=1794082389,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -2943,7 +2943,7 @@ const SALA = {
   connect() {
     const c = SALA.cfg(); if (!c || !SALA.url()) return;
     if (SALA.ws && SALA.ws.readyState < 2) return;
-    clearTimeout(SALA.timer); SALA.st = 'conn';
+    clearTimeout(SALA.timer); SALA.st = 'conn'; SALA.wake();
     let ws;
     try { ws = new WebSocket(SALA.url().replace(/^http/i, 'ws') + '/sala/' + c.code); } catch (e) { SALA.st = 'off'; SALA.retry(); return; }
     SALA.ws = ws;
@@ -2964,6 +2964,15 @@ const SALA = {
     };
     render();
   },
+  /* mantém a tela ligada enquanto a sala está ativa (Android suspende o app e derruba a conexão com a tela apagada) */
+  async wake() {
+    try {
+      if (!SALA.cfg() || !navigator.wakeLock || document.visibilityState !== 'visible' || SALA.wl) return;
+      const l = await navigator.wakeLock.request('screen'); SALA.wl = l;
+      l.addEventListener('release', () => { if (SALA.wl === l) SALA.wl = null; });
+    } catch (e) { SALA.wl = null; }
+  },
+  unwake() { const l = SALA.wl; SALA.wl = null; if (l) { try { l.release(); } catch (e) { } } },
   retry() { clearTimeout(SALA.timer); const w = Math.min(30000, 1000 * Math.pow(2, SALA.tries++)); SALA.timer = setTimeout(() => SALA.connect(), w); },
   drop() { const w = SALA.ws; SALA.ws = null; SALA.st = 'off'; clearInterval(SALA.hb); clearTimeout(SALA.timer); if (w) { try { w.close(); } catch (e) { } } },
   send(o, quiet) {
@@ -2972,7 +2981,7 @@ const SALA = {
   },
   resume() { if (SALA.cfg() && SALA.url()) SALA.connect(); },
   leave(msg) {
-    SALA.drop(); delete D.settings.sala; SALA.queue = []; SALA.results = null; SALA.who = { owner: false, mods: 0, guests: 0 };
+    SALA.drop(); SALA.unwake(); delete D.settings.sala; SALA.queue = []; SALA.results = null; SALA.who = { owner: false, mods: 0, guests: 0 };
     save('settings'); if (msg) toast(msg); render();
   },
   /* ---------- mensagens do servidor ---------- */
@@ -3216,7 +3225,15 @@ function salaInit() {
     }
   }
   SALA.resume();
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && SALA.cfg() && !SALA.live()) { SALA.tries = 0; SALA.connect(); } });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { SALA.hiddenAt = Date.now(); return; }
+    if (!SALA.cfg()) return;
+    SALA.wake();
+    // voltou depois de um tempo: a conexão pode estar morta sem aviso, então refaz
+    if (SALA.live() && SALA.hiddenAt && Date.now() - SALA.hiddenAt > 15000) SALA.drop();
+    if (!SALA.live()) { SALA.tries = 0; SALA.connect(); }
+  });
+  window.addEventListener('online', () => { if (SALA.cfg() && !SALA.live()) { SALA.tries = 0; SALA.connect(); } });
   setInterval(() => SALA.ixCheck(), 60000);
 }
 
