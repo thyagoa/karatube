@@ -265,7 +265,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.18.1",APP_BUILD=1794002104,MGR=false;
+const APP_VERSION="1.19.0",APP_BUILD=1794076488,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -2782,6 +2782,110 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener && matchMedia('(pref
 document.addEventListener('focusout', () => setTimeout(() => { if (window.scrollY || document.documentElement.scrollTop) window.scrollTo(0, 0); }, 120));
 window.addEventListener('scroll', () => { if (window.scrollY) window.scrollTo(0, 0); }, { passive: true });
 
+/* QR code (modo bytes, correção M, versões 1 a 15) — gerador próprio, sem biblioteca */
+const QR = (() => {
+  // blocos de correção por versão (nível M): [qtd, total, dados, ...]
+  const RS = [null, [1, 26, 16], [1, 44, 28], [1, 70, 44], [2, 50, 32], [2, 67, 43], [4, 43, 27], [4, 49, 31], [2, 60, 38, 2, 61, 39], [3, 58, 36, 2, 59, 37], [4, 69, 43, 1, 70, 44], [1, 80, 50, 4, 81, 51], [6, 58, 36, 2, 59, 37], [8, 59, 37, 1, 60, 38], [4, 64, 40, 5, 65, 41], [5, 65, 41, 5, 66, 42]];
+  const ALIN = [null, [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50], [6, 30, 54], [6, 32, 58], [6, 34, 62], [6, 26, 46, 66], [6, 26, 48, 70]];
+  const EXP = new Array(512), LOG = new Array(256);
+  for (let i = 0, x = 1; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 256) x ^= 0x11d; }
+  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  const mul = (a, b) => (a && b) ? EXP[LOG[a] + LOG[b]] : 0;
+  function rsGen(n) { let g = [1]; for (let i = 0; i < n; i++) { const h = new Array(g.length + 1).fill(0); for (let j = 0; j < g.length; j++) { h[j] ^= g[j]; h[j + 1] ^= mul(g[j], EXP[i]); } g = h; } return g; }
+  function rsEc(data, n) { const g = rsGen(n), r = new Array(n).fill(0); for (const d of data) { const f = d ^ r[0]; r.shift(); r.push(0); if (f) for (let i = 0; i < n; i++) r[i] ^= mul(g[i + 1], f); } return r; }
+  const blocks = v => { const t = RS[v], o = []; for (let i = 0; i < t.length; i += 3) for (let k = 0; k < t[i]; k++) o.push([t[i + 1], t[i + 2]]); return o; };
+  const capBytes = v => { const b = blocks(v); const d = b.reduce((s, x) => s + x[1], 0); return d - 2 - (v > 9 ? 1 : 0); };   // modo(4)+tamanho(8 ou 16)
+  function bchFmt(d) { let r = d << 10; for (let i = 14; i >= 10; i--) if (r >> i & 1) r ^= 0x537 << (i - 10); return ((d << 10) | r) ^ 0x5412; }
+  function bchVer(v) { let r = v << 12; for (let i = 17; i >= 12; i--) if (r >> i & 1) r ^= 0x1f25 << (i - 12); return (v << 12) | r; }
+
+  function dados(bytes, v) {
+    const bits = []; const put = (x, n) => { for (let i = n - 1; i >= 0; i--) bits.push(x >> i & 1); };
+    put(4, 4); put(bytes.length, v > 9 ? 16 : 8); bytes.forEach(b => put(b, 8));
+    const bl = blocks(v), total = bl.reduce((s, x) => s + x[1], 0) * 8;
+    put(0, Math.min(4, total - bits.length)); while (bits.length % 8) bits.push(0);
+    const cw = []; for (let i = 0; i < bits.length; i += 8) { let b = 0; for (let k = 0; k < 8; k++) b = b << 1 | bits[i + k]; cw.push(b); }
+    for (let p = 0; cw.length < total / 8; p++) cw.push(p % 2 ? 0x11 : 0xec);
+    // separa em blocos, calcula a correção e intercala
+    let at = 0; const dd = [], ee = [];
+    bl.forEach(([t, d]) => { const x = cw.slice(at, at + d); at += d; dd.push(x); ee.push(rsEc(x, t - d)); });
+    const out = []; const mx = Math.max(...bl.map(x => x[1]));
+    for (let i = 0; i < mx; i++) dd.forEach(x => { if (i < x.length) out.push(x[i]); });
+    for (let i = 0; i < ee[0].length; i++) ee.forEach(x => out.push(x[i]));
+    return out;
+  }
+
+  function matriz(cw, v, mask) {
+    const n = 17 + v * 4, m = Array.from({ length: n }, () => new Array(n).fill(null)), fn = Array.from({ length: n }, () => new Array(n).fill(false));
+    const set = (r, c, val) => { m[r][c] = val; fn[r][c] = true; };
+    const finder = (r0, c0) => { for (let r = -1; r <= 7; r++) for (let c = -1; c <= 7; c++) { const rr = r0 + r, cc = c0 + c; if (rr < 0 || cc < 0 || rr >= n || cc >= n) continue; set(rr, cc, (r >= 0 && r <= 6 && (c === 0 || c === 6)) || (c >= 0 && c <= 6 && (r === 0 || r === 6)) || (r >= 2 && r <= 4 && c >= 2 && c <= 4)); } };
+    finder(0, 0); finder(0, n - 7); finder(n - 7, 0);
+    for (let i = 8; i < n - 8; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+    const al = ALIN[v];
+    al.forEach((r, i) => al.forEach((c, j) => { if ((i === 0 && j === 0) || (i === 0 && j === al.length - 1) || (i === al.length - 1 && j === 0)) return; for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) set(r + a, c + b, Math.max(Math.abs(a), Math.abs(b)) !== 1); }));
+    // reserva formato e versão
+    for (let i = 0; i < 9; i++) { if (!fn[8][i]) set(8, i, false); if (!fn[i][8]) set(i, 8, false); }
+    for (let i = 0; i < 8; i++) { set(8, n - 1 - i, false); set(n - 1 - i, 8, false); }
+    set(n - 8, 8, true);
+    if (v >= 7) { const vi = bchVer(v); for (let i = 0; i < 18; i++) { const b = (vi >> i & 1) === 1, a = Math.floor(i / 3), c = i % 3 + n - 11; set(a, c, b); set(c, a, b); } }
+    // dados em zigue-zague
+    const bits = []; cw.forEach(b => { for (let i = 7; i >= 0; i--) bits.push(b >> i & 1); });
+    let k = 0, up = true;
+    for (let c = n - 1; c > 0; c -= 2) {
+      if (c === 6) c--;
+      for (let i = 0; i < n; i++) {
+        const r = up ? n - 1 - i : i;
+        for (let d = 0; d < 2; d++) {
+          const cc = c - d; if (fn[r][cc]) continue;
+          let b = k < bits.length ? bits[k] === 1 : false; k++;
+          const mk = [(r + cc) % 2 === 0, r % 2 === 0, cc % 3 === 0, (r + cc) % 3 === 0, (Math.floor(r / 2) + Math.floor(cc / 3)) % 2 === 0, (r * cc) % 2 + (r * cc) % 3 === 0, ((r * cc) % 2 + (r * cc) % 3) % 2 === 0, ((r + cc) % 2 + (r * cc) % 3) % 2 === 0][mask];
+          m[r][cc] = b !== mk;
+        }
+      }
+      up = !up;
+    }
+    // formato (nível M = 00)
+    const f = bchFmt(mask);
+    for (let i = 0; i < 15; i++) {
+      const b = (f >> i & 1) === 1;
+      if (i < 6) m[i][8] = b; else if (i < 8) m[i + 1][8] = b; else m[n - 15 + i][8] = b;
+      if (i < 8) m[8][n - 1 - i] = b; else if (i < 9) m[8][15 - i] = b; else m[8][14 - i] = b;
+    }
+    return m;
+  }
+  function pena(m) {
+    const n = m.length; let p = 0;
+    for (let t = 0; t < 2; t++) for (let i = 0; i < n; i++) {
+      let run = 1;
+      for (let j = 1; j < n; j++) { const a = t ? m[j][i] : m[i][j], b = t ? m[j - 1][i] : m[i][j - 1]; if (a === b) { run++; if (run === 5) p += 3; else if (run > 5) p++; } else run = 1; }
+    }
+    for (let r = 0; r < n - 1; r++) for (let c = 0; c < n - 1; c++) if (m[r][c] === m[r][c + 1] && m[r][c] === m[r + 1][c] && m[r][c] === m[r + 1][c + 1]) p += 3;
+    const pat = [true, false, true, true, true, false, true, false, false, false, false];
+    for (let t = 0; t < 2; t++) for (let i = 0; i < n; i++) for (let j = 0; j + 11 <= n; j++) {
+      let a = true, b = true;
+      for (let k = 0; k < 11; k++) { const x = t ? m[j + k][i] : m[i][j + k]; if (x !== pat[k]) a = false; if (x !== pat[10 - k]) b = false; }
+      if (a || b) p += 40;
+    }
+    let esc = 0; m.forEach(l => l.forEach(x => { if (x) esc++; }));
+    return p + Math.floor(Math.abs(esc * 100 / (n * n) - 50) / 5) * 10;
+  }
+  function make(texto) {
+    const bytes = Array.from(new TextEncoder().encode(String(texto)));
+    let v = 1; while (v <= 15 && capBytes(v) < bytes.length) v++;
+    if (v > 15) return null;
+    const cw = dados(bytes, v); let best = null, bp = 1e9;
+    for (let mk = 0; mk < 8; mk++) { const m = matriz(cw, v, mk), p = pena(m); if (p < bp) { bp = p; best = m; } }
+    return best;
+  }
+  // SVG (preto no branco, com margem de 4 módulos), pronto para colar no HTML
+  function svg(texto, px) {
+    const m = make(texto); if (!m) return '';
+    const n = m.length, q = 4; let d = '';
+    m.forEach((l, r) => { let c = 0; while (c < n) { if (!l[c]) { c++; continue; } let e = c; while (e < n && l[e]) e++; d += 'M' + (c + q) + ' ' + (r + q) + 'h' + (e - c) + 'v1h-' + (e - c) + 'z'; c = e; } });
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (n + q * 2) + ' ' + (n + q * 2) + '" width="' + (px || 220) + '" height="' + (px || 220) + '" shape-rendering="crispEdges" role="img" aria-label="QR code"><rect width="100%" height="100%" fill="#fff"/><path d="' + d + '" fill="#000"/></svg>';
+  }
+  return { make, svg };
+})();
+
 /* ===== Sala · fila compartilhada (Worker separado, worker-sala.js) =====
    Papéis: dono (criou a sala), moderador (aparelho com o mesmo token do GitHub) e convidado (só o código).
    Dono e moderador usam a fila normal do app: D.queue vira um espelho da fila do servidor.
@@ -3027,7 +3131,8 @@ const SALA = {
       <div class="mono" style="font-size:26px;font-weight:800;letter-spacing:.1em;margin-top:10px">${esc(c.code)}</div>
       <div class="muted" style="font-size:12px;margin-top:2px">${SALA.st === 'on' ? n + (n === 1 ? ' aparelho conectado' : ' aparelhos conectados') + (SALA.who.owner ? '' : ' · dono offline (sem TV)') : 'Sem conexão com a sala.'}${SALA.shared() ? ' · catálogo na sala: ' + SALA.ixN + ' versões' : ''}</div>
       ${nameF}
-      <div class="fx g8" style="margin-top:10px">${btn('Copiar link', 'salaCopy', { cls: 'fx1', icon: 'share' })}${btn('Compartilhar', 'salaShare', { cls: 'fx1' })}</div>
+      <div class="fx g8" style="margin-top:10px">${btn('Copiar link', 'salaCopy', { cls: 'fx1', icon: 'share' })}${btn('Compartilhar', 'salaShare', { cls: 'fx1' })}${btn('QR code', 'salaQr', { cls: 'fx1' })}</div>
+      ${ui.salaQr ? `<div class="qrbox" style="margin-top:10px;text-align:center"><div style="display:inline-block;border-radius:12px;overflow:hidden;background:#fff;line-height:0">${QR.svg(SALA.link(), 232) || ''}</div><div class="muted" style="font-size:12px;margin-top:6px">Aponte a câmera do outro aparelho para entrar na sala.</div></div>` : ''}
       ${own ? `<label class="fx ac g8" style="min-height:48px;margin-top:6px"><input type="checkbox" data-change="salaSearch" ${SALA.search ? 'checked' : ''} aria-label="Convidados podem pesquisar"><span class="fx1"><b>Convidados podem pesquisar</b> <span class="muted" style="font-size:12px">desligado: só pedem pelo código</span></span></label>
       <div class="fx g8" style="margin-top:4px">${btn('Trocar código', 'salaNewCode', { cls: 'fx1' })}${btn('Encerrar sala', 'salaClose', { cls: 'fx1 danger' })}</div>` : ''}
       <div style="margin-top:8px">${btn('Sair da sala', 'salaLeave', { cls: 'text sm' })}</div></div>`;
@@ -3081,6 +3186,7 @@ Object.assign(ACT, {
       toast('Código novo: ' + code);
     })();
   },
+  salaQr() { ui.salaQr = !ui.salaQr; render(); },
   async salaCopy() { try { await navigator.clipboard.writeText(SALA.link()); toast('Link copiado.'); } catch (e) { toast('Não consegui copiar. Código: ' + SALA.cfg().code); } },
   async salaShare() {
     const c = SALA.cfg();

@@ -42,7 +42,8 @@
   .chan b{font-size:1.05rem}
   .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
   .tools input{flex:1;min-width:180px}
-  .tablewrap{overflow:auto;border:1px solid var(--line);border-radius:10px}
+  .tablewrap{overflow:auto;border:1px solid var(--line);border-radius:10px;max-height:78vh}
+  tr.esp td{padding:0;border:0;height:0}
   table{border-collapse:collapse;width:100%;min-width:760px}
   th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
   th{position:sticky;top:0;background:var(--card);font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
@@ -73,11 +74,12 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Listador de vídeos de canal do YouTube <span class="ver">v1.6</span></h1>
+  <h1>Listador de vídeos de canal do YouTube <span class="ver">v1.7</span></h1>
   <p class="sub">Informe o canal e receba todos os vídeos com link, botão de copiar e exportação para planilha.</p>
   <details class="hist">
     <summary>Histórico de versões</summary>
     <ul>
+      <li><b>v1.7</b> (07/11/2026): lista virtual (só as linhas perto da tela ficam na página, então 20 mil vídeos rolam sem travar) e furigana/romaji guardados neste navegador (não converte de novo ao reabrir).</li>
       <li><b>v1.6</b> (05/11/2026): coluna "Catálogo": selo "✓ código" nos vídeos já cadastrados no KaraTube (lido do GitHub e do gerenciador) e botão "Cadastrar" que abre a tela de nova música do gerenciador já preenchida (URL, sugestão de música e cantor, romaji); filtro "Só não cadastrados".</li>
       <li><b>v1.5</b> (05/11/2026): cache dos canais no GitHub (repositório de dados) e neste navegador; seletor de canais já baixados que abre sem usar a API; "Atualizar" que lê só o que é novo (para no primeiro vídeo conhecido); "Recarregar tudo" com confirmação; busca dos antigos salva a cada rodada e continua no dia seguinte; vários aparelhos juntam os vídeos pelo id.</li>
       <li><b>v1.4</b> (05/11/2026): títulos em japonês aparecem com furigana sobre os kanjis e o romaji embaixo; o filtro também acha pelo romaji.</li>
@@ -157,7 +159,7 @@
       <span class="jpst" id="jpStatus"></span>
       <span class="count" id="contagem"></span>
     </div>
-    <div class="tablewrap">
+    <div class="tablewrap" id="tablewrap">
       <table>
         <thead>
           <tr>
@@ -395,11 +397,11 @@
       while (fila.length && jpLigado()){
         const v = fila.shift();
         if (lerJP.has(v.id) || !celulas.has(v.id)) continue;
-        try { lerJP.set(v.id, await converter(v)); } catch(e){ break; }
+        try { const r = await converter(v); r.t = v.title; lerJP.set(v.id, r); sujoJP = true; } catch(e){ break; }
         const td = celulas.get(v.id); if (td && td.isConnected) pintarTitulo(v, td);
         if (fila.length % 20 === 0) await new Promise(ok => setTimeout(ok, 0));   // deixa a página respirar
       }
-    } finally { rodando = false; }
+    } finally { rodando = false; agendarSalvarJP(); }
   }
   function observar(td, v){
     if (!jpLigado() || !temJP(v.title) || lerJP.has(v.id)) return;
@@ -425,18 +427,44 @@
     return lista;
   }
 
-  function render(){
-    const lista = visiveis();
+  /* lista virtual: só as linhas perto da área visível ficam na página (20 mil linhas não travam) */
+  const LIM_TUDO = 300, BUF = 25;
+  let lista = [], altura = 52, janela = [-1, -1];
+  function render(ev){
+    lista = visiveis();
+    const tw = $('tablewrap');
+    if (ev && ev.type) tw.scrollTop = 0;
+    janela = [-1, -1];
+    pintarJanela();
+    $('contagem').textContent = lista.length === videos.length ? `${videos.length} vídeos` : `${lista.length} de ${videos.length} vídeos`;
+  }
+  function faixa(){
+    const n = lista.length;
+    if (n <= LIM_TUDO) return [0, n];
+    const tw = $('tablewrap'), cab = tw.querySelector('thead').offsetHeight;
+    const topo = Math.max(0, tw.scrollTop - cab);
+    const a = Math.max(0, Math.floor(topo / altura) - BUF);
+    const b = Math.min(n, Math.ceil((topo + tw.clientHeight) / altura) + BUF);
+    return [a, b];
+  }
+  function pintarJanela(){
+    const [a, b] = faixa();
+    if (janela[0] === a && janela[1] === b) return;
+    janela = [a, b];
     const corpo = $('corpo');
     corpo.innerHTML = '';
     const frag = document.createDocumentFragment();
     if (obs) obs.disconnect(); celulas.clear(); celCat.clear(); fila = [];
-    lista.forEach(v => {
+    const esp = h => { const tr = document.createElement('tr'); tr.className = 'esp'; const td = document.createElement('td'); td.colSpan = 7; td.style.height = h + 'px'; tr.appendChild(td); return tr; };
+    if (a > 0) frag.appendChild(esp(Math.round(a * altura)));
+    for (let i = a; i < b; i++){
+      const v = lista[i];
+      const jp0 = lerJP.get(v.id); if (jp0 && jp0.t !== undefined && jp0.t !== v.title) lerJP.delete(v.id);   // título mudou: converte de novo
       const tr = document.createElement('tr');
       tr.innerHTML = '<td class="num"></td><td class="t"><a target="_blank" rel="noopener"></a></td><td class="num"></td><td class="num"></td><td class="num"></td><td><button class="small">Copiar link</button></td><td class="cat"></td>';
       const td = tr.children;
       td[0].textContent = v.n;
-      const a = td[1].firstChild; a.textContent = v.title; a.href = v.url;
+      const link = td[1].firstChild; link.textContent = v.title; link.href = v.url;
       celulas.set(v.id, td[1]); celCat.set(v.id, td[6]); porId.set(v.id, v); pintarCat(v, td[6]);
       if (jpLigado() && lerJP.has(v.id)) pintarTitulo(v, td[1]); else observar(td[1], v);
       td[2].textContent = fmtData(v.date);
@@ -445,11 +473,22 @@
       const btn = td[5].firstChild;
       btn.addEventListener('click', () => copiar(v.url, btn, 'Copiar link'));
       frag.appendChild(tr);
-    });
+    }
+    if (b < lista.length) frag.appendChild(esp(Math.round((lista.length - b) * altura)));
     corpo.appendChild(frag);
-    $('contagem').textContent = lista.length === videos.length ? `${videos.length} vídeos` : `${lista.length} de ${videos.length} vídeos`;
+    medirAltura();
   }
-
+  function medirAltura(){   // altura média real das linhas (furigana/romaji deixam algumas mais altas)
+    if (lista.length <= LIM_TUDO) return;
+    const trs = $('corpo').querySelectorAll('tr:not(.esp)');
+    if (trs.length > 5){ let h = 0; trs.forEach(t => h += t.offsetHeight); const m = h / trs.length; if (m > 20) altura = m; }
+  }
+  let rolando = false;
+  $('tablewrap').addEventListener('scroll', () => {
+    if (rolando || lista.length <= LIM_TUDO) return; rolando = true;
+    requestAnimationFrame(() => { rolando = false; pintarJanela(); });
+  });
+  window.addEventListener('resize', () => { janela = [-1, -1]; pintarJanela(); });
   async function copiar(texto, btn, rotulo){
     try {
       await navigator.clipboard.writeText(texto);
@@ -498,6 +537,24 @@
   async function local(){ if (!dbLocal) dbLocal = await idbDe('karatube-youtube', 'kv-local'); return dbLocal; }
   async function localGet(k){ try { return await idbGet(await local(), k); } catch(e){ return undefined; } }
   async function localPut(k, v){ try { await idbPut(await local(), k, v); } catch(e){} }
+
+  /* furigana/romaji já convertidos ficam guardados neste navegador (não converte de novo ao reabrir) */
+  let sujoJP = false, tSalvarJP = null;
+  function agendarSalvarJP(){
+    if (!sujoJP || tSalvarJP) return;
+    tSalvarJP = setTimeout(async () => {
+      tSalvarJP = null; if (!sujoJP) return; sujoJP = false;
+      const o = {}; lerJP.forEach((r, id) => { o[id] = r; });
+      await localPut('jp-cache', o);
+    }, 4000);
+  }
+  async function carregarJP(){
+    const o = await localGet('jp-cache');
+    if (!o || typeof o !== 'object') return;
+    Object.keys(o).forEach(id => { const r = o[id]; if (r && typeof r.fur === 'string' && typeof r.rom === 'string' && !lerJP.has(id)) lerJP.set(id, {fur: htmlSeguro(r.fur), rom: r.rom, t: r.t}); });
+    if (videos.length) render();
+  }
+  carregarJP();
 
   // repositório e token: os salvos aqui ou os que o gerenciador/app já guardaram neste site
   async function configDoApp(){
