@@ -43,6 +43,7 @@
   .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
   .tools input{flex:1;min-width:180px}
   .tablewrap{overflow:auto;border:1px solid var(--line);border-radius:10px;max-height:78vh}
+  tr.cad td,tr.cad td a,tr.cad td.t rt,tr.cad td.t .rom{color:var(--ok)}
   tr.esp td{padding:0;border:0;height:0}
   table{border-collapse:collapse;width:100%;min-width:760px}
   th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
@@ -825,6 +826,7 @@
   function pintarCat(v, td){
     td.textContent = '';
     const cods = catVids.get(v.id);
+    if (td.parentNode) td.parentNode.classList.toggle('cad', !!cods);
     if (cods){
       const s = document.createElement('span'); s.className = 'selo ok'; s.textContent = '✓ ' + cods[0] + (cods.length > 1 ? ' +' + (cods.length - 1) : ''); s.title = 'Já no catálogo: ' + cods.join(', ');
       td.appendChild(s);
