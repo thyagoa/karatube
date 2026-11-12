@@ -263,7 +263,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.19.1",APP_BUILD=1794082389,MGR=true;
+const APP_VERSION="1.20.0",APP_BUILD=1794493826,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1033,9 +1033,61 @@ function pickFile(accept) {
     document.body.appendChild(i); i.click();
   });
 }
+/* ---------- exportar para outra pessoa: só o catálogo, sem dados pessoais e sem códigos (quem importa recebe os códigos livres dele) ---------- */
+function buildShareExport(ids) {
+  const set = ids ? new Set(ids) : null;
+  const songs = D.songs.filter(s => !set || set.has(s.id));
+  const keep = new Set(songs.map(s => s.id));
+  const outS = songs.map(s => ({
+    ref: s.id, title: s.title, roman: s.roman || '', singers: (s.singers || []).slice(), coverOf: keep.has(s.coverOf) ? s.coverOf : '',
+    lang: s.lang || '', origin: s.origin || '', year: s.year || '', lyric: s.lyric || '', lyricRoman: s.lyricRoman || '', art: s.art || ''
+  }));
+  const outV = [];
+  songs.forEach(s => (X.vers[s.id] || []).forEach(v => outV.push({
+    song: s.id, url: v.url || '', vid: v.vid || '', ytTitle: v.ytTitle || '', channel: v.channel || '', key: v.key || '', voice: v.voice || '',
+    vtype: v.vtype || '', script: v.script || '', tags: (v.tags || []).slice(), link: v.link || 'unverified'
+  })));
+  return { app: 'karatube', kind: 'share', v: 1, exportedAt: now(), songs: outS, versions: outV };
+}
+function shareExportName() { const d = new Date(); return `karatube-catalogo-${d.getFullYear()}-${pad(d.getMonth() + 1, 2)}-${pad(d.getDate(), 2)}.json`; }
+async function shareCatalog() {
+  const json = JSON.stringify(buildShareExport()), name = shareExportName();
+  try {
+    const file = new File([json], name, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Catálogo do KaraTube', text: 'Músicas do KaraTube para importar no seu catálogo' }); return 'shared'; }
+  } catch (e) { if (e && e.name === 'AbortError') return 'cancel'; }
+  downloadFile(name, json); return 'downloaded';
+}
+function planShare(j, filename) {
+  const byVid = new Map(); D.versions.forEach(v => { if (v.vid) byVid.set(v.vid, v.song); });
+  const items = j.songs.map(fs => {
+    const vers = j.versions.filter(v => v.song === fs.ref);
+    let dup = null, why = '';
+    for (const v of vers) { if (v.vid && byVid.has(v.vid)) { dup = byVid.get(v.vid); why = 'mesmo vídeo'; break; } }
+    if (!dup) { const h = D.songs.find(x => sameWork(fs, x)); if (h) { dup = h.id; why = 'mesmo título e cantor'; } }
+    return { ref: fs.ref, song: fs, vers, dup, why, checked: !dup };
+  });
+  return { kind: 'share', file: j, filename: filename || 'catalogo.json', items };
+}
+function applyShare(plan) {
+  const sel = plan.items.filter(i => i.checked), map = {}; plan.items.forEach(i => { if (!i.checked && i.dup && X.song[i.dup]) map[i.ref] = i.dup; });   // capa-de uma música que já existe aqui aponta para a de cá
+  let added = 0, versions = 0, err = '';
+  try {
+    sel.forEach(it => {
+      const id = nextSongCode(), t = now(), f = it.song;
+      D.songs.push({ id, created: t, updated: t, fav: false, title: f.title || '', roman: f.roman || '', singers: (f.singers || []).slice(), coverOf: '', lang: f.lang || '', origin: f.origin || '', year: f.year || '', lyric: f.lyric || '', lyricRoman: f.lyricRoman || '', note: '', art: f.art || '' });
+      map[it.ref] = id; added++;
+      it.vers.forEach((v, k) => { D.versions.push({ code: id + '-' + pad(k + 1, 2), song: id, url: v.url || '', vid: v.vid || '', ytTitle: v.ytTitle || '', channel: v.channel || '', key: v.key || '', voice: v.voice || '', vtype: v.vtype || '', script: v.script || '', tags: (v.tags || []).slice(), link: v.link || 'unverified', rating: 0, vnote: '', sung: 0, lastSung: null, created: t, updated: t }); versions++; });
+    });
+  } catch (e) { err = e.message; }
+  sel.forEach(it => { const c = it.song.coverOf; if (c && map[c] && map[it.ref]) { const s = D.songs.find(x => x.id === map[it.ref]); if (s) s.coverOf = map[c]; } });
+  reindex(); save('songs', 'versions');
+  return { added, versions, err };
+}
 function parseBackup(text) {
   let j; try { j = JSON.parse(text); } catch (e) { throw new Error('Não consegui ler o arquivo. Ele é um backup do KaraTube?'); }
   if (!j || j.app !== 'karatube' || !Array.isArray(j.songs) || !Array.isArray(j.versions)) throw new Error('Este arquivo não parece um backup do KaraTube.');
+  if (j.kind === 'share') return j;
   j.lists = Array.isArray(j.lists) ? j.lists : []; j.history = Array.isArray(j.history) ? j.history : [];
   return j;
 }
@@ -1971,10 +2023,12 @@ function settingsCards() {
   const cards = {
     banner: backupDue() ? `<div class="banner"><b>${last ? 'Faz ' + daysSinceBackup() + ' dias que você não compartilha o backup.' : 'Você ainda não fez nenhum backup.'}</b><div class="fx g8" style="margin-top:8px">${btn('Compartilhar agora', 'share', { cls: 'primary sm' })}${btn('Mais tarde', 'snooze', { cls: 'text sm' })}</div></div>` : '',
     apar: `<div class="card"><h3>Aparência</h3><div class="seg alt" style="margin-top:10px">${[['light', 'Claro'], ['dark', 'Escuro'], ['system', 'Sistema']].map(x => `<button class="${th === x[0] || (x[0] === 'system' && th !== 'light' && th !== 'dark') ? 'sel' : ''}" data-act="theme" data-v="${x[0]}">${x[1]}</button>`).join('')}</div></div>`,
-    backup: `<div class="card"><h3>Compartilhar e backup</h3><p>O catálogo fica só neste aparelho. Compartilhe o arquivo para guardar no Drive ou mandar para o outro aparelho.</p>
+    backup: `<div class="card"><h3>Backup (só para você)</h3><p>Cópia completa: músicas, versões, listas, histórico, notas e quantas vezes cantou. Guarde no Drive ou leve para outro aparelho seu; os códigos continuam os mesmos.</p>
       <div class="mono muted" style="font-size:12px;margin-top:8px">${last ? 'Último backup: ' + fmtDay(last) + ' · ' : 'Nenhum backup ainda · '}${D.songs.length} músicas · ${D.versions.length} versões</div>
       <div class="fx g8" style="margin-top:10px">${btn('Compartilhar', 'share', { cls: 'primary grow', icon: 'share', style: 'flex:1.5;height:48px' })}${btn('Importar', 'import', { cls: 'grow', icon: 'upload', style: 'height:48px' })}</div>
       <button class="btn text" style="width:100%;margin-top:4px" data-act="saveDevice">Só salvar neste aparelho (Downloads)</button></div>`,
+    shareCat: `<div class="card"><h3>Exportar para outra pessoa</h3><p>Só o catálogo: títulos, cantores, links dos vídeos, tom e capa. Sem notas, listas, histórico nem quantas vezes você cantou. Quem importar recebe os códigos livres da própria base.</p>
+      <div style="margin-top:10px">${btn('Exportar catálogo', 'shareCat', { cls: 'grow', icon: 'share', style: 'height:48px;width:100%' })}</div></div>`,
     device: `<div class="card"><h3>Este aparelho</h3>
       <p style="margin-top:10px;font-weight:700">Apelido</p><div class="field" style="margin-top:4px"><input id="devname" data-change="devName" value="${esc(dv.name)}" placeholder="Ex.: Celular do Thyago" autocomplete="off" maxlength="30"></div>
       <p style="margin-top:10px;font-weight:700">Faixa de códigos</p><div class="field" style="margin-top:4px"><select id="devslot" data-change="devSlot" style="flex:1;border:0;background:transparent;font:500 15px 'Manrope',sans-serif;height:46px;outline:0">${Array.from({ length: SLOTS }, (_, k) => { const o = devs.find(x => x.slot === k && x.id !== dv.id); return `<option value="${k}" ${dv.slot === k ? 'selected' : ''} ${o ? 'disabled' : ''}>${slotLabel(k)}${o ? ' · ' + esc(o.name) : ''}</option>`; }).join('')}</select></div>
@@ -2017,8 +2071,8 @@ function settingsCards() {
 function viewSettings() {
   const cards = settingsCards();
   const hd = `<div class="hdr"><h1>Ajustes</h1></div>`;
-  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.order}${cards.idiomas}${cards.qicon}${cards.store}</div><div>${cards.backup}${cards.sync}${cards.fontes}${cards.tv}${cards.sala}${cards.ver}</div></div></div>`;
-  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.sync}${cards.device}${cards.order}${cards.idiomas}${cards.qicon}${cards.fontes}${cards.tv}${cards.sala}${cards.store}${cards.ver}</div>`;
+  if (ui.wide) return `${hd}<div class="scroll pad" data-sk="aju" style="padding-bottom:20px"><div class="cols2"><div>${cards.banner}${cards.apar}${cards.device}${cards.order}${cards.idiomas}${cards.qicon}${cards.store}</div><div>${cards.backup}${cards.shareCat}${cards.sync}${cards.fontes}${cards.tv}${cards.sala}${cards.ver}</div></div></div>`;
+  return `${hd}<div class="scroll pad" data-sk="aju">${cards.banner}${cards.apar}${cards.backup}${cards.shareCat}${cards.sync}${cards.device}${cards.order}${cards.idiomas}${cards.qicon}${cards.fontes}${cards.tv}${cards.sala}${cards.store}${cards.ver}</div>`;
 }
 
 /* ---------- primeira abertura ---------- */
@@ -2322,6 +2376,21 @@ SHEETS.import = t => {
   };
 };
 
+/* ---------- importar catálogo de outra pessoa (os códigos são os livres daqui) ---------- */
+SHEETS.impShare = t => {
+  const p = t.plan, n = p.items.filter(i => i.checked).length, nv = p.items.filter(i => i.checked).reduce((a, i) => a + i.vers.length, 0);
+  const novas = p.items.filter(i => !i.dup), dups = p.items.filter(i => i.dup);
+  const row = i => checkRow(i.song.title, `${esc((i.song.singers || [])[0] || '')} · ${i.vers.length} ${i.vers.length === 1 ? 'versão' : 'versões'}${i.dup ? ' · já existe: ' + i.dup + ' (' + i.why + ')' : ''}`, i.checked, 'impSh', { id: i.ref }, { dim: !!i.dup && !i.checked });
+  const sec = (tt, sub, l) => l.length ? `<div class="gh"><b>${tt}</b><span>${sub}</span></div><div class="group">${l.map(row).join('')}</div>` : '';
+  return {
+    label: 'Importar catálogo', big: true,
+    html: shHead('Importar catálogo de outra pessoa') + `<div class="pad" style="flex:none;padding-top:6px"><div class="card" style="background:var(--surface2);margin:0;padding:12px"><div class="mono" style="font-size:13px;font-weight:600;word-break:break-all">${esc(p.filename)}</div><div class="muted" style="font-size:12px;margin-top:2px">${p.items.length} ${p.items.length === 1 ? 'música' : 'músicas'} · cada uma recebe um código livre deste aparelho. Nada é gravado antes de você confirmar.</div></div>
+      <div class="fx g8" style="margin-top:8px">${btn('Marcar todas', 'impShAll', { cls: 'text sm', d: { v: '1' } })}${btn('Desmarcar todas', 'impShAll', { cls: 'text sm', d: { v: '0' } })}</div></div>
+    <div class="sh-b" data-sk="imp" style="padding-top:10px">${sec('Novas', 'entram com código novo', novas)}${sec('Parecem já existir', 'vêm desmarcadas; marque para criar mesmo assim', dups)}${p.items.length ? '' : '<div class="hint" style="font-size:14px">Este arquivo não tem músicas.</div>'}</div>
+    ${shFoot(btn('Cancelar', 'closeSheet', { cls: 'lg', style: 'flex:none' }) + btn(n ? `Importar ${n} ${n === 1 ? 'música' : 'músicas'}` : 'Nada marcado', 'impShApply', { cls: 'primary grow lg', dis: !n }))}`
+  };
+};
+
 'use strict';
 /* =====================================================================
    KaraTube · ações, eventos e inicialização
@@ -2398,14 +2467,14 @@ function onlineRefresh(t) {
   });
 }
 async function readBackupFile(f) {
-  const text = await f.text(); const j = parseBackup(text); return planImport(j, f.name);
+  const text = await f.text(); const j = parseBackup(text); return j.kind === 'share' ? planShare(j, f.name) : planImport(j, f.name);
 }
 async function doImportFlow(first) {
   try {
     const f = await pickFile(); if (!f) return;
     const plan = await readBackupFile(f);
     if (first) { const e = $('#frname'); createDev(e ? e.value : ui.fr.name); save('settings'); }
-    openSheet({ type: 'import', plan });
+    openSheet({ type: plan.kind === 'share' ? 'impShare' : 'import', plan });
   } catch (e) { toast(e.message || 'Não consegui ler o arquivo.'); }
 }
 function goSong(id) {
@@ -2544,6 +2613,15 @@ const ACT = {
   async share() {
     const r = await shareBackup();
     if (r === 'shared') toast('Backup compartilhado.'); else if (r === 'downloaded') toast('Backup salvo na pasta Downloads.'); render();
+  },
+  async shareCat() {
+    const r = await shareCatalog();
+    if (r === 'shared') toast('Catálogo compartilhado.'); else if (r === 'downloaded') toast('Catálogo salvo na pasta Downloads.'); render();
+  },
+  impShAll(d) { const t = sh(); const on = d.v === '1'; t.plan.items.forEach(i => { i.checked = on; }); render(); },
+  impShApply() {
+    const t = sh(); const r = applyShare(t.plan); ui.sheets = []; ui.songSel = null;
+    toast(r.err ? `Importadas ${r.added} músicas; parei porque ${r.err}` : `Importadas ${r.added} ${r.added === 1 ? 'música' : 'músicas'} com ${r.versions} ${r.versions === 1 ? 'versão' : 'versões'}.`); render();
   },
   saveDevice() { saveBackupToDevice(); toast('Backup salvo na pasta Downloads.'); render(); },
   snooze() { D.settings.snoozeUntil = now() + 7 * DAY; save('settings'); render(); },
@@ -2753,6 +2831,7 @@ document.addEventListener('change', e => {
     case 'srcOn': { const off = D.settings.basesOff || (D.settings.basesOff = []); const i = off.indexOf(t.dataset.id); if (t.checked && i >= 0) off.splice(i, 1); if (!t.checked && i < 0) off.push(t.dataset.id); save('settings'); render(); break; }
     case 'onBase': { const i = s.sel.indexOf(t.dataset.id); if (t.checked && i < 0) s.sel.push(t.dataset.id); if (!t.checked && i >= 0) s.sel.splice(i, 1); render(); break; }
     case 'onChk': s.chk[t.dataset.k] = t.checked; render(); break;
+    case 'impSh': { const n = s.plan.items.find(x => x.ref === t.dataset.id); if (n) n.checked = t.checked; render(); break; }
     case 'impNew': { const n = s.plan.novas.find(x => x.id === t.dataset.id); if (n) n.checked = t.checked; render(); break; }
     case 'lpChk': if (t.checked) s.sel[t.dataset.id] = 1; else delete s.sel[t.dataset.id]; render(); break;
     case 'useCur': s.cur = t.checked; break;
