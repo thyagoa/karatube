@@ -283,7 +283,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.24.5",APP_BUILD=1795119756,MGR=true;
+const APP_VERSION="1.24.6",APP_BUILD=1795120585,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -328,8 +328,8 @@ const ICON = {
   chev: '<path d="M6 9l6 6 6-6"/>',
   vadd: '<rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3M9.5 9v6M6.5 12h6"/>',
   lyrics: '<path d="M4 6h16M4 10h16M4 14h10M4 18h7"/>',
-  inbox: '<pathd="M3 13h5l1 3h6l1-3h5M5 5h14l2 8v6H3v-6z"/>',
-  gsync: '<pathd="M20 12a8 8 0 0 0-14-5.3L4 9M4 4v5h5M4 12a8 8 0 0 0 14 5.3L20 15M20 20v-5h-5"/>',
+  inbox: '<path d="M3 13h5l1 3h6l1-3h5M5 5h14l2 8v6H3v-6z"/>',
+  gsync: '<path d="M20 12a8 8 0 0 0-14-5.3L4 9M4 4v5h5M4 12a8 8 0 0 0 14 5.3L20 15M20 20v-5h-5"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   list: '<path d="M7 4h10v16l-5-3.5L7 20z"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
@@ -788,7 +788,7 @@ const BASES = [
   { id: 'deezer', name: 'Deezer', about: 'Catálogo comercial, forte em música brasileira e ocidental', gives: 'Título, cantor, ano, capa' },
   { id: 'itunes', name: 'iTunes (Apple)', about: 'Catálogo comercial · ano e grafia do artista', gives: 'Título, cantor, ano, capa' },
   { id: 'wikidata', name: 'Wikipédia / Wikidata', about: 'Músicas conhecidas · de qual filme, álbum ou série vem', gives: 'Origem (filme, álbum, série), ano, cantor' },
-  { id: 'lrclib', name: 'LRCLIB', about: 'Só letras · cobertura irregular em japonês', gives: 'Letra inicial' },
+  { id: 'lrclib', name: 'LRCLIB', about: 'Só letras · cobertura irregular em japonês · se não achar, tenta o lyrics.ovh (inglês e português)', gives: 'Letra inicial' },
   { id: 'animethemes', name: 'AnimeThemes', about: 'Só anime · aberturas e encerramentos', gives: 'Título, cantor, origem (anime), ano, pôster' },
   { id: 'anilist', name: 'AniList', about: 'Só anime · nomes em romaji, inglês e japonês', gives: 'Origem (anime), ano, pôster' },
   { id: 'jikan', name: 'Jikan (MyAnimeList)', about: 'Só anime · títulos e ano do anime', gives: 'Origem (anime), ano, pôster' },
@@ -822,6 +822,18 @@ const firstLines = (txt, n) => String(txt || '').split(/\r?\n/).map(l => l.trim(
 const MAX_CANDS = 10;
 const cand = (fields, ...parts) => ({ name: parts.filter(Boolean).join(' · '), fields });
 
+// lyrics.ovh (serviço gratuito de terceiros, sem chave): a busca devolve cantor e título; a letra vem por cantor + título. Só as 4 primeiras sugestões.
+async function lyricsOvh(q) {
+  try {
+    const j = await fetchJSON('https://api.lyrics.ovh/suggest/' + encodeURIComponent(q));
+    const seen = new Set(), top = [];
+    (j.data || []).forEach(r => { const t = r.title_short || r.title, a = (r.artist || {}).name; const k = tKey(a + ' ' + t); if (t && a && !seen.has(k) && top.length < 4) { seen.add(k); top.push({ t, a, al: (r.album || {}).title }); } });
+    const got = await Promise.all(top.map(async r => {
+      try { const l = await fetchJSON('https://api.lyrics.ovh/v1/' + encodeURIComponent(r.a) + '/' + encodeURIComponent(r.t)); const v = firstLines(l && l.lyrics, 5); return v ? cand([{ key: 'lyric', label: 'Letra inicial (5 linhas)', value: v }], r.t, r.a, r.al, 'lyrics.ovh') : null; } catch (e) { return null; }
+    }));
+    return got.filter(Boolean);
+  } catch (e) { return []; }
+}
 const SEARCH = {
   async musicbrainz(q) {
     const j = await mbThrottle(() => fetchJSON('https://musicbrainz.org/ws/2/recording?fmt=json&limit=' + MAX_CANDS + '&query=' + encodeURIComponent(q)));
@@ -919,8 +931,10 @@ const SEARCH = {
   },
   async lrclib(q) {
     const j = await fetchJSON('https://lrclib.net/api/search?q=' + encodeURIComponent(q));
-    return { cands: (j || []).filter(x => x.plainLyrics).map(r => cand(
-      [{ key: 'lyric', label: 'Letra inicial (5 linhas)', value: firstLines(r.plainLyrics, 5) }], r.trackName, r.artistName, r.albumName)) };
+    const cands = (j || []).filter(x => x.plainLyrics).map(r => cand(
+      [{ key: 'lyric', label: 'Letra inicial (5 linhas)', value: firstLines(r.plainLyrics, 5) }], r.trackName, r.artistName, r.albumName));
+    if (cands.length) return { cands };
+    return { cands: await lyricsOvh(q) };   // a LRCLIB não achou: tenta o lyrics.ovh (inglês e português)
   },
   async itunes(q) {
     const j = await jsonp('https://itunes.apple.com/search?entity=song&limit=' + MAX_CANDS + '&term=' + encodeURIComponent(q));
