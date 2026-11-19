@@ -285,7 +285,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.24.2",APP_BUILD=1795118361,MGR=false;
+const APP_VERSION="1.24.3",APP_BUILD=1795119008,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -3791,6 +3791,7 @@ SHEETS.gqr = () => {
       <div style="border-radius:12px;overflow:hidden;background:#fff;line-height:0;border:1px solid var(--line)">${QR.svg(SALA.link(), 250) || ''}</div>
       <div class="muted" style="font-size:13px;line-height:1.35">Aponte a câmera de outro aparelho para entrar na festa.</div>
       <div class="mono" style="font-size:16px;font-weight:700;letter-spacing:.08em">${esc(SALA.cfg().code)}</div>
+      <div class="muted" style="font-size:12px">Versão do app: <b style="color:var(--text)">${esc(APP_VERSION)}</b></div>
       <div>${btn('Sair da festa', 'salaLeave', { cls: 'text sm' })}</div></div>
     ${shFoot(btn('Copiar link', 'salaCopy', { cls: 'grow lg' }) + btn('Fechar', 'closeSheet', { cls: 'primary grow lg' }))}`
   };
