@@ -283,7 +283,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.24.4",APP_BUILD=1795119505,MGR=true;
+const APP_VERSION="1.24.5",APP_BUILD=1795119756,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -3550,7 +3550,7 @@ const SALA = {
           <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
             <span class="ell jp" style="font-size:15px;font-weight:800;line-height:1.3">${esc(x.t)}</span>
             <span class="ell muted" style="font-size:12px;line-height:1.3"><span class="jp">${esc(meta)}</span></span>
-            <span class="muted" style="font-size:12px;font-weight:700;line-height:1.3">${x.vs.length} ${x.vs.length === 1 ? 'versão' : 'versões'}${nq ? ' · ' + nq + ' na fila' : ''}</span>
+            <span class="muted" style="font-size:12px;font-weight:700;line-height:1.3"><span class="mono" data-songcode>${esc(x.id)}</span> · ${x.vs.length} ${x.vs.length === 1 ? 'versão' : 'versões'}${nq ? ' · ' + nq + ' na fila' : ''}</span>
           </span>${chev}
         </button>${single ? SALA.pedirBtn(x.vs[0].c) : ''}
       </div>${detail}</div>`;
