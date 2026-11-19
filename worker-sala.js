@@ -22,7 +22,7 @@ export const CAN = {
 export class Sala {
   constructor(state, env) {
     this.state = state; this.env = env; this.loaded = false;
-    this.q = []; this.reqs = []; this.meta = null; this.ix = []; this.ixTs = 0; this.ixBuf = null; this.rate = new Map(); this.sorted = {}; this._g = null; this.sg = {};
+    this.q = []; this.reqs = []; this.lyr = new Map(); this.lyBuf = null; this.meta = null; this.ix = []; this.ixTs = 0; this.ixBuf = null; this.rate = new Map(); this.sorted = {}; this._g = null; this.sg = {};
     try { if (typeof WebSocketRequestResponsePair !== 'undefined') state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong')); } catch (e) { }
   }
   async load() {
@@ -31,6 +31,8 @@ export class Sala {
     this.meta = (await st.get('meta')) || null; this.q = (await st.get('queue')) || []; this.reqs = (await st.get('reqs')) || [];
     const im = (await st.get('ixmeta')) || { n: 0, ts: 0 }; this.ixTs = im.ts || 0; this.ix = [];
     for (let i = 0; i < im.n; i++) { const c = await st.get('ix:' + i); if (c) this.ix.push(...c); }
+    const lm = (await st.get('lymeta')) || { n: 0 }; this.lyr = new Map();
+    for (let i = 0; i < lm.n; i++) { const c = await st.get('ly:' + i); if (c) c.forEach(x => this.lyr.set(x.s, x)); }
     this.loaded = true;
   }
   // entrada do Worker: abre o WebSocket
@@ -53,7 +55,7 @@ export class Sala {
   async destroy(why) {
     this.bcast({ t: 'closed', why });
     this.all().forEach(ws => { try { ws.close(1000, 'closed'); } catch (e) { } });
-    await this.state.storage.deleteAll(); this.meta = null; this.q = []; this.reqs = []; this.ix = []; this.sorted = {}; this._g = null; this.sg = {}; this.ixTs = 0; this.loaded = true;
+    await this.state.storage.deleteAll(); this.meta = null; this.q = []; this.reqs = []; this.lyr = new Map(); this.ix = []; this.sorted = {}; this._g = null; this.sg = {}; this.ixTs = 0; this.loaded = true;
   }
   async webSocketClose(ws) { this.bcast(this.presence()); }
   async webSocketError(ws) { this.bcast(this.presence()); }
@@ -76,6 +78,8 @@ export class Sala {
       case 'index': if (!CAN.mod(a.role)) return this.deny(ws); return this.index(ws, m);
       case 'search': return this.search(ws, a, m);
       case 'list': return this.list(ws, a, m);
+      case 'lyrics': if (!CAN.mod(a.role)) return this.deny(ws); return this.lyrics(m);
+      case 'lyr': return this.lyric(ws, a, m);
       case 'req': if (a.role !== 'guest') return this.deny(ws); return this.req(ws, a, m);
       case 'rdone': if (!CAN.mod(a.role)) return this.deny(ws); return this.rdone(m);
       case 'rdis': return this.rdis(ws, a, m);
@@ -218,7 +222,7 @@ export class Sala {
   async index(ws, m) {
     const n = m.n | 0, i = m.i | 0; if (n < 1 || n > 80 || i < 0 || i >= n) return;
     if (i === 0 || !this.ixBuf || this.ixBuf.id !== m.id) this.ixBuf = { id: cut(m.id, 24), n, parts: [], ts: +m.ts || Date.now(), size: 0 };
-    const items = (Array.isArray(m.items) ? m.items : []).map(x => ({ c: cut(x.c, 10), t: cut(x.t, 120), s: cut(x.s, 80), v: cut(x.v, 12), k: cut(x.k, 8), o: cut(x.o, 30), n: cut(x.n, 60), l: cut(x.l, 20), y: cut(x.y, 12), og: cut(x.og, 60), p: cut(x.p, 30), h: cut(x.h, 40), a: /^https?:/.test(String(x.a || '')) ? cut(x.a, 220) : '', u: Math.max(0, x.u | 0), g: (Array.isArray(x.g) ? x.g : []).slice(0, 8).map(z => cut(z, 24)), x: cut(x.x, 400) })).filter(x => okMusic(x.c));
+    const items = (Array.isArray(m.items) ? m.items : []).map(x => ({ c: cut(x.c, 10), t: cut(x.t, 120), s: cut(x.s, 80), v: cut(x.v, 12), k: cut(x.k, 8), o: cut(x.o, 30), n: cut(x.n, 60), l: cut(x.l, 20), y: cut(x.y, 12), og: cut(x.og, 60), p: cut(x.p, 30), h: cut(x.h, 40), lk: ['ok', 'broken'].includes(x.lk) ? x.lk : 'unverified', a: /^https?:/.test(String(x.a || '')) ? cut(x.a, 220) : '', u: Math.max(0, x.u | 0), g: (Array.isArray(x.g) ? x.g : []).slice(0, 8).map(z => cut(z, 24)), x: cut(x.x, 400) })).filter(x => okMusic(x.c));
     this.ixBuf.parts[i] = items; this.ixBuf.size += items.length;
     if (this.ixBuf.size > MAX_IX) { this.ixBuf = null; return this.send(ws, { t: 'err', code: 'big' }); }
     if (this.ixBuf.parts.filter(Boolean).length < n) return;
@@ -229,6 +233,24 @@ export class Sala {
     this.ix = [].concat(...this.ixBuf.parts); this.sorted = {}; this._g = null; this.sg = {}; this.ixTs = this.ixBuf.ts; this.ixBuf = null;
     this.bcast({ t: 'indexed', n: this.ix.length, ts: this.ixTs });
     await this.reqSweep();
+  }
+  // letras (até 5 linhas + romaji) por música (6 dígitos), enviadas em partes pelo dono/moderador, em chaves separadas do índice
+  async lyrics(m) {
+    const n = m.n | 0, i = m.i | 0; if (n < 1 || n > 100 || i < 0 || i >= n) return;
+    if (i === 0 || !this.lyBuf || this.lyBuf.id !== m.id) this.lyBuf = { id: cut(m.id, 24), n, parts: [] };
+    this.lyBuf.parts[i] = (Array.isArray(m.items) ? m.items : []).map(x => ({ s: cut(x.s, 6), ly: cut(x.ly, 600), lr: cut(x.lr, 600) })).filter(x => /^\d{6}$/.test(x.s) && (x.ly || x.lr));
+    if (this.lyBuf.parts.filter(Boolean).length < n) return;
+    const st = this.state.storage; const old = (await st.get('lymeta')) || { n: 0 }; const parts = this.lyBuf.parts; this.lyBuf = null;
+    for (let k = 0; k < n; k++) await st.put('ly:' + k, parts[k]);
+    for (let k = n; k < old.n; k++) await st.delete('ly:' + k);
+    await st.put('lymeta', { n });
+    this.lyr = new Map(); parts.forEach(p => p.forEach(x => this.lyr.set(x.s, x)));
+  }
+  lyric(ws, a, m) {
+    const id = cut(m.id, 6); const r = this.rate.get(a.dev) || { until: 0, miss: 0, s: [] }; this.rate.set(a.dev, r);
+    const t = Date.now(); r.s = r.s.filter(x => t - x < 60000); if (r.s.length >= 90) return;
+    r.s.push(t); const x = this.lyr.get(id);
+    this.send(ws, { t: 'lyr', id, ly: x ? x.ly : '', lr: x ? x.lr : '' });
   }
   search(ws, a, m) {
     const id = cut(m.id, 24); const out = items => this.send(ws, { t: 'results', id, items });
@@ -314,8 +336,8 @@ export class Sala {
     }
     if (sort === 'r') hit.sort((p, q) => q[0] - p[0] || (p[1].id < q[1].id ? -1 : 1));
     const page = hit.slice(off, off + (toks.length ? SEARCH_MAX : PAGE)).map(([, s, vs]) => ({
-      id: s.id, t: s.t, s: s.s, l: s.l, y: s.y, og: s.og, a: s.a, v: s.vs[0] ? s.vs[0].v : '', g: s.g.slice(0, 10),
-      vs: vs.map(v => ({ c: v.c, v: v.v, k: v.k, o: v.o, n: v.n, p: v.p || '', h: v.h || '' }))
+      id: s.id, t: s.t, s: s.s, l: s.l, y: s.y, og: s.og, a: s.a, hl: this.lyr.has(s.id), v: s.vs[0] ? s.vs[0].v : '', g: s.g.slice(0, 10),
+      vs: vs.map(v => ({ c: v.c, v: v.v, k: v.k, o: v.o, n: v.n, p: v.p || '', h: v.h || '', lk: v.lk || 'unverified' }))
     }));
     const out = { items: page, total: hit.length };
     if (off === 0 && this.meta.browse && a.role === 'guest') out.fac = this.facets();

@@ -283,7 +283,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.24.1",APP_BUILD=1795117002,MGR=true;
+const APP_VERSION="1.24.2",APP_BUILD=1795118361,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -327,7 +327,8 @@ const ICON = {
   down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   chev: '<path d="M6 9l6 6 6-6"/>',
   vadd: '<rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3M9.5 9v6M6.5 12h6"/>',
-  inbox: '<path d="M3 13h5l1 3h6l1-3h5M5 5h14l2 8v6H3v-6z"/>',
+  lyrics: '<path d="M4 6h16M4 10h16M4 14h10M4 18h7"/>',
+  inbox: '<pathd="M3 13h5l1 3h6l1-3h5M5 5h14l2 8v6H3v-6z"/>',
   gsync: '<pathd="M20 12a8 8 0 0 0-14-5.3L4 9M4 4v5h5M4 12a8 8 0 0 0 14 5.3L20 15M20 20v-5h-5"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   list: '<path d="M7 4h10v16l-5-3.5L7 20z"/>',
@@ -3233,7 +3234,7 @@ const SALA_MSG = {
   cheia: 'A fila está cheia.', espere: 'Muitos códigos errados. Espere um pouco.'
 };
 const SALA = {
-  ws: null, st: 'off', queue: [], search: true, browse: false, limit: 3, own: '', theme: '', stale: false, syncing: false, gTs: 0, lastRx: 0, gReq: {}, g: { q: '', sort: 't', f: { l: [], d: [], og: '', o: '', p: '', g: [] }, openId: null, cache: {}, fac: null }, who: { owner: false, mods: 0, guests: 0 }, ixTs: 0, ixN: 0, tries: 0, timer: null, hb: null,
+  ws: null, st: 'off', queue: [], search: true, browse: false, limit: 3, own: '', theme: '', stale: false, syncing: false, gTs: 0, lastRx: 0, gReq: {}, g: { q: '', sort: 't', f: { l: [], d: [], og: '', o: '', p: '', g: [] }, openId: null, cache: {}, fac: null, ly: {} }, who: { owner: false, mods: 0, guests: 0 }, ixTs: 0, ixN: 0, tries: 0, timer: null, hb: null,
   createMsg: null, pend: {}, tvp: {}, results: null, gq: '', gTimer: null, reqs: [], reqSent: {},
   cfg() { return D.settings.sala || null; },
   url() { return (D.settings.salaUrl || '').trim().replace(/\/+$/, ''); },
@@ -3352,6 +3353,7 @@ const SALA = {
       case 'cfg': SALA.cfgApply(m); if (SALA.guest()) { SALA.g.cache = {}; SALA.gReq = {}; SALA.gStart(true); } render(); break;
       case 'indexed': SALA.ixTs = m.ts; SALA.ixN = m.n; if (SALA.guest() && SALA.gTs !== m.ts) SALA.stale = true; render(); break;
       case 'list': SALA.gRecv(m); break;
+      case 'lyr': SALA.g.ly[m.id] = { ly: m.ly || '', lr: m.lr || '' }; if (sh() && sh().type === 'glyric') render(); break;
       case 'reqs': SALA.reqs = m.reqs || []; SALA.reqCheck(); render(); break;
       case 'reqok': {
         const g = ui.greq || (ui.greq = { url: '', note: '' }); g.busy = false;
@@ -3413,7 +3415,7 @@ const SALA = {
     D.versions.forEach(v => {
       const s = X.song[v.song]; if (!s) return;
       const x = [tKey(s.title), tKey(s.roman), tKey((s.singers || []).join(' ')), v.code, v.code.replace('-', '')].filter(Boolean).join(' ').slice(0, 400);
-      items.push({ c: v.code, t: s.title, s: (s.singers || [])[0] || '', v: v.vid || parseVid(v.url), k: v.key || '', o: v.voice || '', n: v.vnote || '', l: s.lang || '', y: s.year || '', og: s.origin || '', p: v.vtype || '', h: v.channel || '', a: /^https?:/.test(s.art || '') ? s.art : '', u: v.sung || 0, g: (v.tags || []).slice(0, 8), x });
+      items.push({ c: v.code, t: s.title, s: (s.singers || [])[0] || '', v: v.vid || parseVid(v.url), k: v.key || '', o: v.voice || '', n: v.vnote || '', l: s.lang || '', y: s.year || '', og: s.origin || '', p: v.vtype || '', h: v.channel || '', lk: v.link || 'unverified', a: /^https?:/.test(s.art || '') ? s.art : '', u: v.sung || 0, g: (v.tags || []).slice(0, 8), x });
       ts = Math.max(ts, v.updated || 0, s.updated || 0, v.created || 0);
     });
     return { items, ts: ts || 1 };
@@ -3452,12 +3454,18 @@ const SALA = {
     if (!SALA.shared() || !SALA.live()) return;
     let ts = 0; D.versions.forEach(v => { ts = Math.max(ts, v.updated || 0, v.created || 0); }); D.songs.forEach(s => { ts = Math.max(ts, s.updated || 0); });
     if (!D.versions.length) return;
-    if (SALA.ixN === 0 || ts > SALA.ixTs || D.settings.ixFmt !== 2) SALA.sendIndex();   // ixFmt: formato do índice (2 = com o canal do vídeo)
+    if (SALA.ixN === 0 || ts > SALA.ixTs || D.settings.ixFmt !== 4) SALA.sendIndex();   // ixFmt: formato do índice (2 = com o canal do vídeo, 3 = com o status do link, 4 = letras enviadas à parte)
+  },
+  // letras (trecho de até 5 linhas + romaji) em partes pequenas, separadas do índice (o armazenamento da sala limita o tamanho de cada parte)
+  sendLyrics() {
+    const items = D.songs.filter(x => x.lyric || x.lyricRoman).map(x => ({ s: x.id, ly: String(x.lyric || '').slice(0, 600), lr: String(x.lyricRoman || '').slice(0, 600) }));
+    const id = uid(), per = 60, n = Math.max(1, Math.ceil(items.length / per));
+    for (let i = 0; i < n; i++) if (!SALA.send({ t: 'lyrics', id, i, n, items: items.slice(i * per, (i + 1) * per) }, true)) return;
   },
   sendIndex() {
     const b = SALA.buildIndex(); const id = uid(); const per = 300; const n = Math.max(1, Math.ceil(b.items.length / per));
     for (let i = 0; i < n; i++) if (!SALA.send({ t: 'index', id, i, n, ts: b.ts, items: b.items.slice(i * per, (i + 1) * per) }, true)) return;
-    SALA.ixTs = b.ts; SALA.ixN = b.items.length; D.settings.ixFmt = 2; save('settings');
+    SALA.ixTs = b.ts; SALA.ixN = b.items.length; D.settings.ixFmt = 4; save('settings'); SALA.sendLyrics();
   },
   /* ---------- convidado ---------- */
   guestAdd(code) {
@@ -3465,7 +3473,7 @@ const SALA = {
     if (!SALA.send({ t: 'add', id: uid(), code })) return;
   },
   /* termos digitados pelo convidado (vazio = só navegando) */
-  gNew() { return { q: '', sort: 't', f: { l: [], d: [], og: '', o: '', p: '', g: [] }, openId: null, cache: {}, fac: null }; },
+  gNew() { return { q: '', sort: 't', f: { l: [], d: [], og: '', o: '', p: '', g: [] }, openId: null, cache: {}, fac: null, ly: {} }; },
   gToks() { return tKey(SALA.g.q).split(' ').filter(Boolean); },
   gShort(t) { const j = t.join(''); return t.length > 0 && j.length < 2 && !/[^\x00-\x7f]/.test(j); },
   gKey() { const g = SALA.g; return JSON.stringify([SALA.gToks().join(' '), g.sort, g.f]); },
@@ -3537,9 +3545,10 @@ const SALA = {
       const tags = (x.g || []).length ? `<div class="chips" style="gap:6px;margin-top:${x.og ? 8 : 0}px">${x.g.map(t => `<span class="mini" style="font-size:12px;padding:5px 10px;border-radius:13px">${esc(t)}</span>`).join('')}</div>` : '';
       const vers = x.vs.map(v => {
         const vm = [v.k ? 'Tom ' + v.k : '', v.o, v.p, v.n].filter(Boolean).join(' · ');
-        return `<div class="fx ac g12" style="padding:8px 0;border-top:1px solid var(--line)">${SALA.gVThumb(v)}<div class="fx1" style="min-width:0"><div class="ell" style="font-size:13px"><b class="mono">${esc(v.c)}</b>${v.h ? ' <span class="muted" style="font-weight:600">' + esc(v.h) + '</span>' : ''}</div>${vm ? `<div class="muted" style="font-size:11px;margin-top:2px;line-height:1.35">${esc(vm)}</div>` : ''}</div>${SALA.pedirBtn(v.c)}</div>`;
+        return `<div class="fx ac g12" style="padding:8px 0;border-top:1px solid var(--line)">${SALA.gVThumb(v)}<div class="fx1" style="min-width:0"><div class="ell" style="font-size:13px"><span class="dot ${esc(v.lk || 'unverified')}" role="img" aria-label="${esc(linkLabel(v.lk))}" title="${esc(linkLabel(v.lk))}" style="margin-right:6px;vertical-align:1px"></span><b class="mono">${esc(v.c)}</b></div>${v.h ? `<div class="ell muted" style="font-size:11px;margin-top:2px;line-height:1.35">${esc(v.h)}</div>` : ''}${vm ? `<div class="muted" style="font-size:11px;line-height:1.35">${esc(vm)}</div>` : ''}</div>${SALA.pedirBtn(v.c)}</div>`;
       }).join('');
-      detail = `<div style="border-top:1px solid var(--line);padding:10px 12px 6px">${org}${tags}<div style="margin-top:${org || tags ? 10 : 0}px">${vers}</div></div>`;
+      const lyr = x.hl ? `<button class="btn" data-act="gLyric" data-id="${esc(x.id)}" style="width:100%;margin-top:${org || tags ? 10 : 0}px">${ic('lyrics', 20, 2)}Ver letra</button>` : '';
+      detail = `<div style="border-top:1px solid var(--line);padding:10px 12px 6px">${org}${tags}${lyr}<div style="margin-top:${org || tags || lyr ? 10 : 0}px">${vers}</div></div>`;
     }
     return `<div style="margin-bottom:8px;border-radius:16px;overflow:hidden;background:var(--surface);border:1px solid ${open ? 'var(--accent)' : 'var(--line)'}">
       <div class="fx ac g8" style="padding:14px 12px">
@@ -3866,6 +3875,25 @@ Object.assign(ACT, {
     const f = $('#f-url'); if (f && f.scrollIntoView) f.scrollIntoView({ block: 'center' });
   },
   reqDis(d) { SALA.send({ t: 'rdis', r: d.r }); }
+});
+
+/* ---- letra da música (convidado): popup com o trecho da letra e o romaji ---- */
+SHEETS.glyric = t => {
+  const L = SALA.g.ly[t.id];
+  const sec = (k, txt, big) => txt ? `<div class="muted" style="font-size:11px;font-weight:800;letter-spacing:.06em;margin:${big ? 0 : 16}px 0 6px">${k}</div><div class="jp" style="font-size:${big ? 17 : 15}px;line-height:${big ? 1.7 : 1.6};white-space:pre-line;${big ? '' : 'color:var(--muted)'}">${esc(txt)}</div>` : '';
+  return {
+    label: 'Letra',
+    html: `<div class="sh-t"><div class="fx1" style="min-width:0"><h3 class="ell jp">${esc(t.t || 'Letra')}</h3><small><span class="jp">${esc(t.s || '')}</span> · Letra</small></div>${ib('close', 'closeSheet', 'Fechar')}</div>
+    <div class="sh-b" style="padding-top:12px">${!L ? '<div class="muted">Carregando…</div>' : (!L.ly && !L.lr ? '<div class="muted">Esta música não tem letra cadastrada.</div>' : sec('ORIGINAL', L.ly, true) + sec('ROMAJI', L.lr, !L.ly))}</div>
+    ${shFoot(btn('Fechar', 'closeSheet', { cls: 'primary grow lg' }))}`
+  };
+};
+Object.assign(ACT, {
+  gLyric(d) {
+    const c = SALA.gCur(), it = c && c.items.find(x => x.id === d.id);
+    openSheet({ type: 'glyric', id: d.id, t: it ? it.t : '', s: it ? it.s : '' });
+    if (!SALA.g.ly[d.id]) SALA.send({ t: 'lyr', id: d.id }, true);
+  }
 });
 
 'use strict';
