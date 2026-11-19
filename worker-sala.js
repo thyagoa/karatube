@@ -218,7 +218,7 @@ export class Sala {
   async index(ws, m) {
     const n = m.n | 0, i = m.i | 0; if (n < 1 || n > 80 || i < 0 || i >= n) return;
     if (i === 0 || !this.ixBuf || this.ixBuf.id !== m.id) this.ixBuf = { id: cut(m.id, 24), n, parts: [], ts: +m.ts || Date.now(), size: 0 };
-    const items = (Array.isArray(m.items) ? m.items : []).map(x => ({ c: cut(x.c, 10), t: cut(x.t, 120), s: cut(x.s, 80), v: cut(x.v, 12), k: cut(x.k, 8), o: cut(x.o, 30), n: cut(x.n, 60), l: cut(x.l, 20), y: cut(x.y, 12), og: cut(x.og, 60), p: cut(x.p, 30), a: /^https?:/.test(String(x.a || '')) ? cut(x.a, 220) : '', u: Math.max(0, x.u | 0), g: (Array.isArray(x.g) ? x.g : []).slice(0, 8).map(z => cut(z, 24)), x: cut(x.x, 400) })).filter(x => okMusic(x.c));
+    const items = (Array.isArray(m.items) ? m.items : []).map(x => ({ c: cut(x.c, 10), t: cut(x.t, 120), s: cut(x.s, 80), v: cut(x.v, 12), k: cut(x.k, 8), o: cut(x.o, 30), n: cut(x.n, 60), l: cut(x.l, 20), y: cut(x.y, 12), og: cut(x.og, 60), p: cut(x.p, 30), h: cut(x.h, 40), a: /^https?:/.test(String(x.a || '')) ? cut(x.a, 220) : '', u: Math.max(0, x.u | 0), g: (Array.isArray(x.g) ? x.g : []).slice(0, 8).map(z => cut(z, 24)), x: cut(x.x, 400) })).filter(x => okMusic(x.c));
     this.ixBuf.parts[i] = items; this.ixBuf.size += items.length;
     if (this.ixBuf.size > MAX_IX) { this.ixBuf = null; return this.send(ws, { t: 'err', code: 'big' }); }
     if (this.ixBuf.parts.filter(Boolean).length < n) return;
@@ -315,7 +315,7 @@ export class Sala {
     if (sort === 'r') hit.sort((p, q) => q[0] - p[0] || (p[1].id < q[1].id ? -1 : 1));
     const page = hit.slice(off, off + (toks.length ? SEARCH_MAX : PAGE)).map(([, s, vs]) => ({
       id: s.id, t: s.t, s: s.s, l: s.l, y: s.y, og: s.og, a: s.a, v: s.vs[0] ? s.vs[0].v : '', g: s.g.slice(0, 10),
-      vs: vs.map(v => ({ c: v.c, v: v.v, k: v.k, o: v.o, n: v.n, p: v.p || '' }))
+      vs: vs.map(v => ({ c: v.c, v: v.v, k: v.k, o: v.o, n: v.n, p: v.p || '', h: v.h || '' }))
     }));
     const out = { items: page, total: hit.length };
     if (off === 0 && this.meta.browse && a.role === 'guest') out.fac = this.facets();

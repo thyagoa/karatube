@@ -283,7 +283,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.24.0",APP_BUILD=1795115438,MGR=true;
+const APP_VERSION="1.24.1",APP_BUILD=1795117002,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -3413,7 +3413,7 @@ const SALA = {
     D.versions.forEach(v => {
       const s = X.song[v.song]; if (!s) return;
       const x = [tKey(s.title), tKey(s.roman), tKey((s.singers || []).join(' ')), v.code, v.code.replace('-', '')].filter(Boolean).join(' ').slice(0, 400);
-      items.push({ c: v.code, t: s.title, s: (s.singers || [])[0] || '', v: v.vid || parseVid(v.url), k: v.key || '', o: v.voice || '', n: v.vnote || '', l: s.lang || '', y: s.year || '', og: s.origin || '', p: v.vtype || '', a: /^https?:/.test(s.art || '') ? s.art : '', u: v.sung || 0, g: (v.tags || []).slice(0, 8), x });
+      items.push({ c: v.code, t: s.title, s: (s.singers || [])[0] || '', v: v.vid || parseVid(v.url), k: v.key || '', o: v.voice || '', n: v.vnote || '', l: s.lang || '', y: s.year || '', og: s.origin || '', p: v.vtype || '', h: v.channel || '', a: /^https?:/.test(s.art || '') ? s.art : '', u: v.sung || 0, g: (v.tags || []).slice(0, 8), x });
       ts = Math.max(ts, v.updated || 0, s.updated || 0, v.created || 0);
     });
     return { items, ts: ts || 1 };
@@ -3452,12 +3452,12 @@ const SALA = {
     if (!SALA.shared() || !SALA.live()) return;
     let ts = 0; D.versions.forEach(v => { ts = Math.max(ts, v.updated || 0, v.created || 0); }); D.songs.forEach(s => { ts = Math.max(ts, s.updated || 0); });
     if (!D.versions.length) return;
-    if (SALA.ixN === 0 || ts > SALA.ixTs) SALA.sendIndex();
+    if (SALA.ixN === 0 || ts > SALA.ixTs || D.settings.ixFmt !== 2) SALA.sendIndex();   // ixFmt: formato do índice (2 = com o canal do vídeo)
   },
   sendIndex() {
     const b = SALA.buildIndex(); const id = uid(); const per = 300; const n = Math.max(1, Math.ceil(b.items.length / per));
     for (let i = 0; i < n; i++) if (!SALA.send({ t: 'index', id, i, n, ts: b.ts, items: b.items.slice(i * per, (i + 1) * per) }, true)) return;
-    SALA.ixTs = b.ts; SALA.ixN = b.items.length;
+    SALA.ixTs = b.ts; SALA.ixN = b.items.length; D.settings.ixFmt = 2; save('settings');
   },
   /* ---------- convidado ---------- */
   guestAdd(code) {
@@ -3512,9 +3512,15 @@ const SALA = {
     setTimeout(() => { SALA.syncing = false; render(); }, 700);
   },
   myCount() { const d = TV.devId(); return SALA.queue.filter(e => e.dev === d).length; },
+  // imagem QUADRADA da música: a capa (se tiver link) tem prioridade; senão a miniatura do vídeo da 1ª versão (cortada ao centro)
   gThumb(x) {
-    const img = x.a || (x.v ? thumbUrl(x.v) : '');
-    return img ? `<img src="${esc(img)}" alt="" width="64" height="48" loading="lazy" style="width:64px;height:48px;border-radius:10px;object-fit:cover;flex:none;background:var(--surface2)">` : `<span style="width:64px;height:48px;border-radius:10px;flex:none;background:var(--surface2);display:flex;align-items:center;justify-content:center;color:var(--muted)">${ic('mic', 24, 1.6)}</span>`;
+    const vt = x.v ? thumbUrl(x.v) : '', img = x.a || vt;
+    const fb = vt && x.a ? ` data-v="${esc(vt)}" onerror="if(!this.dataset.f){this.dataset.f=1;this.src=this.dataset.v}"` : '';
+    return img ? `<img src="${esc(img)}"${fb} alt="" width="56" height="56" loading="lazy" style="width:56px;height:56px;border-radius:10px;object-fit:cover;flex:none;background:var(--surface2)">` : `<span style="width:56px;height:56px;border-radius:10px;flex:none;background:var(--surface2);display:flex;align-items:center;justify-content:center;color:var(--muted)">${ic('mic', 24, 1.6)}</span>`;
+  },
+  // miniatura RETANGULAR (16:9) do vídeo de uma versão
+  gVThumb(v) {
+    return v.v ? `<img src="${esc(thumbUrl(v.v))}" alt="" width="80" height="45" loading="lazy" style="width:80px;height:45px;border-radius:8px;object-fit:cover;flex:none;background:var(--surface2)">` : `<span style="width:80px;height:45px;border-radius:8px;flex:none;background:var(--surface2);display:flex;align-items:center;justify-content:center;color:var(--muted)">${ic('play', 20, 1.6)}</span>`;
   },
   pedirBtn(code) {
     if (SALA.gInQ(code)) return '<span class="muted" style="font-size:13px;font-weight:800;flex:none;min-width:64px;text-align:center">Na fila</span>';
@@ -3530,8 +3536,8 @@ const SALA = {
       const org = x.og ? `<div style="font-size:13px;color:var(--muted)"><span style="font-size:11px;font-weight:800;letter-spacing:.06em;margin-right:6px">ORIGEM</span><b style="color:var(--text);font-weight:700">${esc(x.og)}</b></div>` : '';
       const tags = (x.g || []).length ? `<div class="chips" style="gap:6px;margin-top:${x.og ? 8 : 0}px">${x.g.map(t => `<span class="mini" style="font-size:12px;padding:5px 10px;border-radius:13px">${esc(t)}</span>`).join('')}</div>` : '';
       const vers = x.vs.map(v => {
-        const vm = [v.k ? 'Tom ' + v.k : '', v.o, v.p && v.n ? v.n : ''].filter(Boolean).join(' · ');
-        return `<div class="fx ac g8" style="padding:8px 0;border-top:1px solid var(--line)"><div class="fx1" style="min-width:0"><div style="font-size:14px;font-weight:700">${esc(v.p || v.n || 'Versão')}</div><div class="muted" style="font-size:12px;margin-top:2px">${esc(vm)}${vm ? ' · ' : ''}<span class="mono">${esc(v.c)}</span></div></div>${SALA.pedirBtn(v.c)}</div>`;
+        const vm = [v.k ? 'Tom ' + v.k : '', v.o, v.p, v.n].filter(Boolean).join(' · ');
+        return `<div class="fx ac g12" style="padding:8px 0;border-top:1px solid var(--line)">${SALA.gVThumb(v)}<div class="fx1" style="min-width:0"><div class="ell" style="font-size:13px"><b class="mono">${esc(v.c)}</b>${v.h ? ' <span class="muted" style="font-weight:600">' + esc(v.h) + '</span>' : ''}</div>${vm ? `<div class="muted" style="font-size:11px;margin-top:2px;line-height:1.35">${esc(vm)}</div>` : ''}</div>${SALA.pedirBtn(v.c)}</div>`;
       }).join('');
       detail = `<div style="border-top:1px solid var(--line);padding:10px 12px 6px">${org}${tags}<div style="margin-top:${org || tags ? 10 : 0}px">${vers}</div></div>`;
     }
