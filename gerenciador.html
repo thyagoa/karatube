@@ -285,7 +285,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.25.0",APP_BUILD=1795124180,MGR=true;
+const APP_VERSION="1.25.1",APP_BUILD=1795124499,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1589,7 +1589,7 @@ function minibar() {
     <button class="qcount" data-act="openQueue" aria-label="Abrir a fila: ${n} músicas na espera">${ic('queue', 18)}+${n}</button>
     <button class="ib round ok" data-act="sung" aria-label="Cantei: marcar e ir para a próxima">${ic('check', 22, 2.6)}</button>
     <button class="ib round bd" data-act="skip" aria-label="Não cantei: ir para a próxima">${ic('close', 22, 2.6)}</button>
-    <button class="ib bd" data-act="openYT" data-code="${esc(cur.code)}" aria-label="Abrir no YouTube" style="color:var(--accent)"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${ICON.play}</svg></button>
+    <button class="ib bd" data-act="tv" aria-label="Enviar para a TV" style="color:var(--accent)">${ic('tv', 22, 2)}</button>
   </div>`;
 }
 function shellPhone() {
