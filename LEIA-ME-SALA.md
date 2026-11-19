@@ -25,3 +25,11 @@
 - Códigos errados seguidos fazem o convidado esperar 30 segundos; as buscas têm limite por minuto.
 - Se a conexão cair, o app tenta reconectar sozinho. Sem conexão, dono e moderadores não alteram a fila (o app avisa).
 - Ao sair ou encerrar, o aparelho fica com uma cópia da fila daquele momento.
+
+
+## QR code
+Em Ajustes › Fila compartilhada, o botão **QR code** mostra o link da sala como QR: o convidado aponta a câmera do celular e cai direto na tela de entrada (nome + código). Funciona sem internet, o QR é gerado no próprio aparelho.
+
+
+## Modo Festa (v1.21): atualize o Worker
+Esta versão tem navegação paginada e limite de pedidos configurável, o que exige o `worker-sala.js` novo. No Cloudflare: Workers › karatube-sala › Edit code › cole o conteúdo de `worker-sala.js` › Deploy. Sem isso o app continua funcionando, mas o convidado não consegue navegar e o limite fica em 3.
