@@ -287,7 +287,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.25.1",APP_BUILD=1795124499,MGR=false;
+const APP_VERSION="1.25.2",APP_BUILD=1795129158,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1543,7 +1543,9 @@ function syncNow() {
 function render() {
   syncNow();
   const keep = {}; $$('[data-sk]').forEach(e => keep[e.dataset.sk] = e.scrollTop);
-  (ui.noKeep || []).forEach(k => keep[k] = 0); ui.noKeep = null;
+  // celular: a lista do catálogo some quando abre a música; guarda a rolagem para voltar ao mesmo ponto (ui.limit já mantém o tamanho da lista)
+  if (keep.cat != null) ui.catScroll = keep.cat; else if (ui.catScroll) keep.cat = ui.catScroll;
+  (ui.noKeep || []).forEach(k => { keep[k] = 0; if (k === 'cat') ui.catScroll = 0; }); ui.noKeep = null;
   const ae = document.activeElement; const fid = ae && ae.id ? ae.id : null;
   const sel = fid && ae.selectionStart != null ? [ae.selectionStart, ae.selectionEnd] : null;
   let html;
