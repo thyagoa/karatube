@@ -274,12 +274,16 @@ body{position:fixed;inset:0;width:100%}
 .xrow{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;text-align:left;color:var(--text)}
 .xvers{border-top:1px solid var(--line);background:var(--surface2);padding:4px 0 6px}
 
+/* Qual versão?: código · bolinha · estrelas numa linha só (em tela muito estreita, as estrelas descem) */
+.vrow{gap:6px;flex-wrap:nowrap;white-space:nowrap}
+@media (max-width:340px){.vrow{flex-wrap:wrap;row-gap:2px}}
+
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.23.0",APP_BUILD=1795104775,MGR=true;
+const APP_VERSION="1.23.1",APP_BUILD=1795106237,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -2270,7 +2274,7 @@ SHEETS.pickVer = t => {
   const s = X.song[t.songId]; const vs = X.vers[t.songId] || [];
   return {
     label: 'Escolher versão',
-    html: shHead('Qual versão?', esc(s.title)) + `<div class="sh-b" style="padding-top:12px;padding-bottom:16px">${vs.map(v => `<div class="vcard" style="margin-bottom:8px"><div class="fx ac g12">${vthumb(s, v, 80, 45)}<div class="fx1"><div class="fx ac g8"><b class="mono" style="font-size:13px">${v.code}</b><span class="dot ${v.link || 'unverified'}"></span></div><div class="muted" style="font-size:12px;margin-top:2px">${[v.key && 'Tom ' + v.key, v.voice, v.vtype].filter(Boolean).map(esc).join(' · ') || esc(v.channel || '')}</div></div>${btn('Adicionar', 'addVQ', { cls: 'primary sm', d: { code: v.code } })}</div></div>`).join('')}</div>`
+    html: shHead('Qual versão?', esc(s.title)) + `<div class="sh-b" style="padding-top:12px;padding-bottom:16px">${vs.map(v => `<div class="vcard" style="margin-bottom:8px"><div class="fx ac g12">${vthumb(s, v, 80, 45)}<div class="fx1"><div class="fx ac vrow"><b class="mono" style="font-size:13px">${v.code}</b><span class="dot ${v.link || 'unverified'}"></span>${v.rating ? `<span class="stars" role="img" aria-label="${v.rating} de 5 estrelas" style="gap:0;flex:none">${stars(v.rating, 10)}</span>` : '<span class="muted" style="font-size:11px;flex:none">sem nota</span>'}</div><div class="muted" style="font-size:12px;margin-top:2px">${[v.key && 'Tom ' + v.key, v.voice, v.vtype].filter(Boolean).map(esc).join(' · ') || esc(v.channel || '')}</div></div>${btn('Adicionar', 'addVQ', { cls: 'primary sm', d: { code: v.code } })}</div></div>`).join('')}</div>`
   };
 };
 
