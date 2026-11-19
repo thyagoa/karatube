@@ -265,7 +265,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.20.0",APP_BUILD=1794493826,MGR=false;
+const APP_VERSION="1.20.1",APP_BUILD=1795046532,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -649,11 +649,18 @@ async function fetchJSON(url, opt, ms) {
 async function oembed(vid) {
   const target = encodeURIComponent(watchUrl(vid));
   const urls = [`https://www.youtube.com/oembed?url=${target}&format=json`, `https://noembed.com/embed?url=${target}`];
-  let err;
+  const errs = [];
   for (const u of urls) {
-    try { const j = await fetchJSON(u); if (j && j.title) return { title: j.title, channel: j.author_name || '' }; } catch (e) { err = e; }
+    try {
+      const j = await fetchJSON(u); if (j && j.title) return { title: j.title, channel: j.author_name || '' };
+      if (j && j.error) errs.push(new Error('HTTP ' + String(j.error).trim()));   // o noembed responde 200 com o erro dentro
+    } catch (e) { errs.push(e); }
   }
-  throw err || new Error('sem resposta');
+  // se o próprio YouTube respondeu com erro, não é problema de internet (o noembed pode falhar por outro motivo)
+  const m = errs[0] && errs[0].message.match(/^HTTP (\d{3})/), c = m ? +m[1] : 0;
+  const e = new Error('sem resposta');
+  if (c === 401 || c === 403) e.why = 'blocked'; else if (c === 404) e.why = 'missing';
+  throw e;
 }
 // título limpo: tira 【カラオケ】, (Off Vocal), [Instrumental] etc.
 function cleanTitle(t) {
@@ -1747,7 +1754,7 @@ function ytBox(d) {
   if (!d.url) return '';
   if (!d.vid) return `<div class="hint" style="color:var(--danger)">Não reconheci este link do YouTube.</div>`;
   const st = d.ytState;
-  const stTxt = st === 'loading' ? '<span class="spin"></span> Buscando no YouTube…' : st === 'ok' ? '✓ Preenchido pelo YouTube' : st === 'error' ? 'Não consegui ler o vídeo (sem internet?). Dá para preencher à mão.' : '';
+  const stTxt = st === 'loading' ? '<span class="spin"></span> Buscando no YouTube…' : st === 'ok' ? '✓ Preenchido pelo YouTube' : st === 'blocked' ? 'O YouTube não deixa ler os dados deste vídeo (incorporação desativada pelo dono). O vídeo funciona normal; preencha título e canal à mão.' : st === 'missing' ? 'O YouTube diz que este vídeo não existe ou é privado. Confira o link.' : st === 'error' ? 'Não consegui ler o vídeo (sem internet?). Dá para preencher à mão.' : '';
   return `<div class="card fx g12" style="margin:10px 0 0;padding:10px"><div class="thumb" style="width:96px;height:54px;border-radius:8px;background:var(--surface2)"><img src="${thumbUrl(d.vid)}" alt="" onerror="this.remove()"></div>
     <div class="fx1"><div class="jp" style="font-size:13px;font-weight:700;line-height:1.3;max-height:34px;overflow:hidden">${esc(d.ytTitle || '')}</div><div class="muted" style="font-size:12px;margin-top:2px">${esc(d.channel || '')}</div><div style="font-size:11px;font-weight:700;margin-top:4px;color:${st === 'ok' ? 'var(--ok)' : 'var(--muted)'}">${stTxt}</div></div></div>`;
 }
@@ -1948,7 +1955,7 @@ async function loadYT(force) {
     const hasSongFields = d.mode === 'new' || (d.mode === 'edit' && d.scope === 'song');
     if (hasSongFields && !d.title.trim()) d.title = cleanTitle(r.title);
     render();
-  } catch (e) { if (ui.draft && ui.draft.vid === vid) { d.ytState = 'error'; refreshYtBox(); } }
+  } catch (e) { if (ui.draft && ui.draft.vid === vid) { d.ytState = e && e.why ? e.why : 'error'; refreshYtBox(); } }
 }
 function refreshYtBox() { const a = $('#ytbox'), b = $('#dupbox'); if (a && ui.draft) { a.innerHTML = ytBox(ui.draft); if (b) b.innerHTML = dupBox(ui.draft); } }
 function onUrlInput() {
