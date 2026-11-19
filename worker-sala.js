@@ -22,13 +22,13 @@ export const CAN = {
 export class Sala {
   constructor(state, env) {
     this.state = state; this.env = env; this.loaded = false;
-    this.q = []; this.meta = null; this.ix = []; this.ixTs = 0; this.ixBuf = null; this.rate = new Map(); this.sorted = {}; this._g = null; this.sg = {};
+    this.q = []; this.reqs = []; this.meta = null; this.ix = []; this.ixTs = 0; this.ixBuf = null; this.rate = new Map(); this.sorted = {}; this._g = null; this.sg = {};
     try { if (typeof WebSocketRequestResponsePair !== 'undefined') state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong')); } catch (e) { }
   }
   async load() {
     if (this.loaded) return;
     const st = this.state.storage;
-    this.meta = (await st.get('meta')) || null; this.q = (await st.get('queue')) || [];
+    this.meta = (await st.get('meta')) || null; this.q = (await st.get('queue')) || []; this.reqs = (await st.get('reqs')) || [];
     const im = (await st.get('ixmeta')) || { n: 0, ts: 0 }; this.ixTs = im.ts || 0; this.ix = [];
     for (let i = 0; i < im.n; i++) { const c = await st.get('ix:' + i); if (c) this.ix.push(...c); }
     this.loaded = true;
@@ -53,7 +53,7 @@ export class Sala {
   async destroy(why) {
     this.bcast({ t: 'closed', why });
     this.all().forEach(ws => { try { ws.close(1000, 'closed'); } catch (e) { } });
-    await this.state.storage.deleteAll(); this.meta = null; this.q = []; this.ix = []; this.sorted = {}; this._g = null; this.sg = {}; this.ixTs = 0; this.loaded = true;
+    await this.state.storage.deleteAll(); this.meta = null; this.q = []; this.reqs = []; this.ix = []; this.sorted = {}; this._g = null; this.sg = {}; this.ixTs = 0; this.loaded = true;
   }
   async webSocketClose(ws) { this.bcast(this.presence()); }
   async webSocketError(ws) { this.bcast(this.presence()); }
@@ -76,6 +76,9 @@ export class Sala {
       case 'index': if (!CAN.mod(a.role)) return this.deny(ws); return this.index(ws, m);
       case 'search': return this.search(ws, a, m);
       case 'list': return this.list(ws, a, m);
+      case 'req': if (a.role !== 'guest') return this.deny(ws); return this.req(ws, a, m);
+      case 'rdone': if (!CAN.mod(a.role)) return this.deny(ws); return this.rdone(m);
+      case 'rdis': return this.rdis(ws, a, m);
       case 'cfg': {
         if (!CAN.owner(a.role)) return this.deny(ws);
         if ('search' in m) this.meta.search = !!m.search;
@@ -110,7 +113,52 @@ export class Sala {
     if (role === 'owner' && this.meta.ownerName !== name) { this.meta.ownerName = name; await this.state.storage.put('meta', this.meta); }
     ws.serializeAttachment({ role, dev, name });
     this.send(ws, Object.assign({ t: 'ready', role, queue: this.q, ixTs: this.ixTs, ixN: this.ix.length, created: !!m.create }, this.cfgMsg(), { t: 'ready' }));
+    this.send(ws, this.reqView({ role, dev, name }));
     this.bcast(this.presence());
+  }
+  /* ---- pedidos de cadastro de vídeo (só convidados pedem; dono e moderadores atendem) ----
+     Um pedido por vídeo do YouTube: quem pede o mesmo vídeo entra na lista "by" do mesmo pedido.
+     r = {r: id, vid, t: título, ch: canal, ts, st: 'p' (aguardando) | 'd' (cadastrado), code, by: [{dev, name, note, ts}]} */
+  reqView(a) {
+    const inCat = r => !!(r.code && this.lookup(r.code));
+    if (a.role === 'guest') {
+      const mine = this.reqs.filter(r => r.by.some(b => b.dev === a.dev)).map(r => { const b = r.by.find(x => x.dev === a.dev); return { r: r.r, vid: r.vid, t: r.t, ch: r.ch, st: r.st, code: r.code || '', cat: inCat(r), ts: b.ts, n: r.by.length - 1 }; });
+      return { t: 'reqs', reqs: mine };
+    }
+    return { t: 'reqs', reqs: this.reqs.map(r => ({ r: r.r, vid: r.vid, t: r.t, ch: r.ch, st: r.st, code: r.code || '', cat: inCat(r), ts: r.ts, by: r.by.map(b => ({ name: b.name, note: b.note, ts: b.ts })) })) };
+  }
+  async persistR() { await this.state.storage.put('reqs', this.reqs); this.all().forEach(ws => { const a = this.att(ws); if (a.role) this.send(ws, this.reqView(a)); }); }
+  async req(ws, a, m) {
+    const id = cut(m.id, 24); const vid = cut(m.vid, 11);
+    const rep = (ok, why, extra) => this.send(ws, Object.assign({ t: 'reqok', id, ok, why }, extra || {}));
+    if (!/^[A-Za-z0-9_-]{11}$/.test(vid)) return rep(false, 'invalido');
+    const inx = this.ix.find(x => x.v === vid);
+    if (inx) return rep(false, 'nocatalogo', { code: inx.c });
+    let r = this.reqs.find(x => x.vid === vid);
+    if (r && r.by.some(b => b.dev === a.dev)) return rep(false, 'repetido');
+    if (this.reqs.filter(x => x.st === 'p' && x.by.some(b => b.dev === a.dev)).length >= 5) return rep(false, 'limite');
+    if (!r && this.reqs.length >= 200) return rep(false, 'cheio');
+    const b = { dev: a.dev, name: a.name || 'Convidado', note: cut(m.note, 80).trim(), ts: Date.now() };
+    if (r) { r.by.push(b); if (!r.t && m.title) { r.t = cut(m.title, 120); r.ch = cut(m.ch, 60); } }
+    else this.reqs.push({ r: Math.random().toString(36).slice(2, 10), vid, t: cut(m.title, 120), ch: cut(m.ch, 60), ts: Date.now(), st: 'p', code: '', by: [b] });
+    rep(true, 'enviado'); await this.persistR();
+  }
+  async rdone(m) {       // dono/moderador viu o vídeo no catálogo: marca como cadastrado
+    const r = this.reqs.find(x => x.r === m.r); if (!r || (r.st === 'd' && r.code === cut(m.code, 10))) return;
+    r.st = 'd'; r.code = okMusic(String(m.code)) ? String(m.code) : ''; await this.persistR();
+  }
+  async rdis(ws, a, m) {  // dispensar: dono/moderador apaga para todos; convidado só o dele, e só depois de cadastrado
+    const i = this.reqs.findIndex(x => x.r === m.r); if (i < 0) return;
+    const r = this.reqs[i];
+    if (a.role === 'guest') { if (r.st !== 'd') return this.deny(ws); r.by = r.by.filter(b => b.dev !== a.dev); if (!r.by.length) this.reqs.splice(i, 1); }
+    else this.reqs.splice(i, 1);
+    await this.persistR();
+  }
+  // o índice do catálogo mudou: pedidos cujo vídeo agora está no catálogo viram "cadastrado"
+  async reqSweep() {
+    let ch = false;
+    this.reqs.forEach(r => { if (r.st === 'p') { const x = this.ix.find(y => y.v === r.vid); if (x) { r.st = 'd'; r.code = x.c; ch = true; } } });
+    if (ch) await this.persistR(); else this.all().forEach(ws => { const a = this.att(ws); if (a.role === 'guest') this.send(ws, this.reqView(a)); });
   }
   entry(e, who, front) {
     if (!e || !okMusic(String(e.code || e.c))) return null;
@@ -180,6 +228,7 @@ export class Sala {
     await st.put('ixmeta', { n, ts: this.ixBuf.ts });
     this.ix = [].concat(...this.ixBuf.parts); this.sorted = {}; this._g = null; this.sg = {}; this.ixTs = this.ixBuf.ts; this.ixBuf = null;
     this.bcast({ t: 'indexed', n: this.ix.length, ts: this.ixTs });
+    await this.reqSweep();
   }
   search(ws, a, m) {
     const id = cut(m.id, 24); const out = items => this.send(ws, { t: 'results', id, items });

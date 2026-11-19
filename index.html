@@ -285,7 +285,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.23.1",APP_BUILD=1795106237,MGR=false;
+const APP_VERSION="1.24.0",APP_BUILD=1795115438,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -328,7 +328,9 @@ const ICON = {
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   chev: '<path d="M6 9l6 6 6-6"/>',
-  gsync: '<path d="M20 12a8 8 0 0 0-14-5.3L4 9M4 4v5h5M4 12a8 8 0 0 0 14 5.3L20 15M20 20v-5h-5"/>',
+  vadd: '<rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3M9.5 9v6M6.5 12h6"/>',
+  inbox: '<path d="M3 13h5l1 3h6l1-3h5M5 5h14l2 8v6H3v-6z"/>',
+  gsync: '<pathd="M20 12a8 8 0 0 0-14-5.3L4 9M4 4v5h5M4 12a8 8 0 0 0 14 5.3L20 15M20 20v-5h-5"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   list: '<path d="M7 4h10v16l-5-3.5L7 20z"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
@@ -1974,7 +1976,9 @@ function viewForm() {
   const seg = edit
     ? `<div class="seg">${[['song', 'Música'], ['version', 'Versão']].map(x => `<button class="${d.scope === x[0] ? 'sel' : ''}" data-act="draftScope" data-v="${x[0]}">${x[1]}</button>`).join('')}</div>`
     : `<div class="seg">${[['new', 'Nova música'], ['version', 'Versão de existente']].map(x => `<button class="${d.mode === x[0] ? 'sel' : ''}" data-act="draftMode" data-v="${x[0]}">${x[1]}</button>`).join('')}</div>`;
-  const head = `<div class="pad" style="padding-top:8px;flex:none">${seg}<div class="mono muted" style="font-size:12px;font-weight:600;margin-top:8px">${edit ? 'Código: ' : 'Novo código: '}${code}</div></div>`;
+  const headIn = `${seg}<div class="mono muted" style="font-size:12px;font-weight:600;margin-top:8px">${edit ? 'Código: ' : 'Novo código: '}${code}</div>`;
+  const reqs = !edit && typeof SALA !== 'undefined' ? SALA.reqCard() : '';   // modo festa: pedidos de cadastro dos convidados
+  const head = reqs ? '' : `<div class="pad" style="padding-top:8px;flex:none">${headIn}</div>`;
   const online = showSong ? `<div style="margin-top:12px">${btn('Buscar online', 'onlineOpen', { cls: 'outline lg', icon: 'globe', is: 22, style: 'width:100%' })}</div>` : '';
   let body;
   if (ui.wide) {
@@ -1986,7 +1990,7 @@ function viewForm() {
   }
   const danger = edit ? `<div class="card" style="margin-top:20px"><h3 style="color:var(--danger)">Zona de perigo</h3><div class="col g8" style="margin-top:10px">${d.scope === 'version' ? btn('Excluir esta versão', 'delVer', { cls: 'dangerOutline', icon: 'trash', d: { code: d.verCode } }) : ''}${btn('Excluir a música e todas as versões', 'delSong', { cls: 'dangerOutline', d: { id: d.songCode } })}</div></div>` : '';
   const mbox = d.mode === 'new' ? `<div id="matchbox" style="margin-bottom:6px">${matchBox(d)}</div>` : '';
-  return `${top}${head}<div class="scroll pad" data-sk="form" style="padding-top:6px;padding-bottom:20px">${mbox}${body}${danger}</div>`;
+  return `${top}${head}<div class="scroll pad" data-sk="form" style="padding-top:${reqs ? 8 : 6}px;padding-bottom:20px">${reqs ? reqs + `<div style="margin-bottom:6px">${headIn}</div>` : ''}${mbox}${body}${danger}</div>`;
 }
 
 /* ---------- gravar o rascunho ---------- */
@@ -2041,6 +2045,7 @@ function saveDraft() {
   } catch (e) { return toast(e.message || 'Não consegui salvar.'); }
   reindex(); save('songs', 'versions');
   ui.draft = null; ui.tab = 'cat'; ui.songSel = songId; toast(msg); render();
+  if (typeof SALA !== 'undefined' && SALA.shared()) { SALA.reqCheck(); setTimeout(() => SALA.ixCheck(), 1500); }   // pedidos de cadastro: avisa a sala e atualiza o catálogo dos convidados
 }
 function cancelDraft() {
   const r = ui.draft && ui.draft.ret;
@@ -3231,7 +3236,7 @@ const SALA_MSG = {
 };
 const SALA = {
   ws: null, st: 'off', queue: [], search: true, browse: false, limit: 3, own: '', theme: '', stale: false, syncing: false, gTs: 0, lastRx: 0, gReq: {}, g: { q: '', sort: 't', f: { l: [], d: [], og: '', o: '', p: '', g: [] }, openId: null, cache: {}, fac: null }, who: { owner: false, mods: 0, guests: 0 }, ixTs: 0, ixN: 0, tries: 0, timer: null, hb: null,
-  createMsg: null, pend: {}, tvp: {}, results: null, gq: '', gTimer: null, 
+  createMsg: null, pend: {}, tvp: {}, results: null, gq: '', gTimer: null, reqs: [], reqSent: {},
   cfg() { return D.settings.sala || null; },
   url() { return (D.settings.salaUrl || '').trim().replace(/\/+$/, ''); },
   name() { const n = (D.settings.salaName || '').trim(); if (n) return n; const dv = devInfo(); return dv && dv.name ? dv.name : 'Convidado'; },
@@ -3318,7 +3323,7 @@ const SALA = {
   leave(msg) {
     const wasMod = SALA.role() === 'mod', prev = D.settings.salaPrev;
     SALA.drop(); SALA.unwake(); delete D.settings.sala; SALA.queue = []; SALA.who = { owner: false, mods: 0, guests: 0 };
-    SALA.g = SALA.gNew(); SALA.gReq = {}; SALA.stale = false; SALA.syncing = false; SALA.own = ''; SALA.theme = '';
+    SALA.g = SALA.gNew(); SALA.gReq = {}; SALA.stale = false; SALA.syncing = false; SALA.own = ''; SALA.theme = ''; SALA.reqs = []; SALA.reqSent = {}; ui.greq = null; ui.greqTab = 'new';
     // moderador: a fila de volta ao que era antes de entrar (a fila da sala não fica no aparelho dele)
     if (wasMod && Array.isArray(prev)) { D.queue = prev; save('queue'); }
     delete D.settings.salaPrev;
@@ -3349,6 +3354,13 @@ const SALA = {
       case 'cfg': SALA.cfgApply(m); if (SALA.guest()) { SALA.g.cache = {}; SALA.gReq = {}; SALA.gStart(true); } render(); break;
       case 'indexed': SALA.ixTs = m.ts; SALA.ixN = m.n; if (SALA.guest() && SALA.gTs !== m.ts) SALA.stale = true; render(); break;
       case 'list': SALA.gRecv(m); break;
+      case 'reqs': SALA.reqs = m.reqs || []; SALA.reqCheck(); render(); break;
+      case 'reqok': {
+        const g = ui.greq || (ui.greq = { url: '', note: '' }); g.busy = false;
+        if (m.ok) { toast('Pedido enviado.'); ui.greq = { url: '', note: '' }; ui.greqTab = 'mine'; }
+        else toast(m.why === 'nocatalogo' ? 'Esse vídeo já está no catálogo (' + m.code + '). Procure pelo nome.' : m.why === 'repetido' ? 'Você já pediu esse vídeo.' : m.why === 'limite' ? 'Você já tem 5 pedidos esperando cadastro.' : m.why === 'cheio' ? 'A lista de pedidos está cheia.' : 'Não reconheci esse link do YouTube.');
+        render(); break;
+      }
       case 'added': {
         const p = SALA.pend[m.id]; delete SALA.pend[m.id];
         if (m.ok) { if (SALA.guest()) { toast('Enviado: ' + (m.title || m.code)); SALA.gPaint(); } }
@@ -3408,7 +3420,37 @@ const SALA = {
     });
     return { items, ts: ts || 1 };
   },
+  /* ---------- pedidos de cadastro ---------- */
+  ago(ts) { const m = Math.floor((Date.now() - (ts || 0)) / 60000); return m < 1 ? 'agora' : m < 60 ? 'há ' + m + ' min' : m < 1440 ? 'há ' + Math.floor(m / 60) + ' h' : 'há ' + Math.floor(m / 1440) + ' d'; },
+  // dono/moderador: pedido cujo vídeo já está no catálogo deste aparelho → avisa a sala (todos que pediram veem "cadastrado")
+  reqCheck() {
+    if (!SALA.shared() || !SALA.live()) return;
+    SALA.reqs.forEach(r => {
+      if (r.st !== 'p') return; const vs = X.vid[r.vid]; if (!vs || !vs.length) return;
+      const k = r.r + vs[0].code; if (SALA.reqSent[k]) return; SALA.reqSent[k] = 1;
+      SALA.send({ t: 'rdone', r: r.r, code: vs[0].code }, true);
+    });
+  },
+  reqRows() { return SALA.reqs.map(r => { const vs = X.vid[r.vid] || []; return Object.assign({}, r, { done: r.st === 'd' || !!vs.length, code: (vs[0] && vs[0].code) || r.code }); }); },
+  reqCard() {
+    if (!SALA.shared() || !SALA.reqs.length) return '';
+    const rs = SALA.reqRows(), open = ui.reqOpen !== false;
+    const names = b => { const n = b.map(x => esc(x.name)); return n.length > 1 ? n.slice(0, -1).join(', ') + ' e ' + n[n.length - 1] : n[0] || ''; };
+    const rows = rs.map(r => {
+      const by = r.by || [], notes = by.filter(b => b.note).map(b => (by.length > 1 ? '<b style="color:var(--text)">' + esc(b.name) + '</b> ' : '') + '“' + esc(b.note) + '”').join(' · ');
+      const sub = `${r.ch ? esc(r.ch) + ' · ' : ''}${SALA.ago(r.ts)}`;
+      const who = `${by.length > 1 ? `<span style="flex:none;height:18px;padding:0 7px;border-radius:9px;background:var(--surface2);color:var(--text);font-weight:800;display:inline-flex;align-items:center">${by.length} pedidos</span> ` : ''}<b style="color:var(--text)">${names(by)}</b>`;
+      const state = r.done ? `<div class="fx ac g6" style="font-size:12px;font-weight:700;color:var(--ok)">${ic('check', 14, 2.6)}<span class="mono">${esc(r.code || '')}</span> · já cadastrado</div>` : '';
+      return `<div class="fx ac g12" style="padding:10px 14px;border-top:1px solid var(--line)"><img src="${thumbUrl(r.vid)}" alt="" width="${ui.wide ? 96 : 72}" height="${ui.wide ? 54 : 40}" loading="lazy" style="border-radius:8px;object-fit:cover;flex:none;background:var(--line);width:${ui.wide ? 96 : 72}px;height:${ui.wide ? 54 : 40}px">
+        <div class="fx1" style="min-width:0"><div class="ell" style="font-size:${ui.wide ? 15 : 14}px;font-weight:700">${esc(r.t || 'Vídeo ' + r.vid)}</div>
+        <div class="ell muted" style="font-size:12px">${sub}</div>${state}
+        <div class="muted" style="font-size:12px;line-height:1.4">${who}${notes ? ' · ' + notes : ''}</div></div>
+        ${r.done ? btn('Dispensar', 'reqDis', { cls: 'sm', d: { r: r.r } }) : btn('Cadastrar', 'reqUse', { cls: 'primary sm', d: { r: r.r } })}</div>`;
+    }).join('');
+    return `<div class="card" style="padding:0;overflow:hidden;max-width:760px"><button class="fx ac g8" data-act="reqTog" aria-expanded="${open}" style="width:100%;padding:12px 14px;border:0;background:none;color:var(--text);text-align:left"><span style="color:var(--accent);display:flex">${ic('inbox', 20, 2)}</span><h3 class="fx1">Pedidos de cadastro</h3><span style="min-width:22px;height:22px;box-sizing:border-box;padding:0 7px;border-radius:11px;background:var(--accent);color:var(--onAccent);font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center">${rs.length}</span><span style="display:flex;color:var(--muted);transform:rotate(${open ? 180 : 0}deg)">${ic('chev', 22, 2.4)}</span></button>${open ? rows : ''}</div>`;
+  },
   ixCheck() {
+    SALA.reqCheck();
     if (!SALA.shared() || !SALA.live()) return;
     let ts = 0; D.versions.forEach(v => { ts = Math.max(ts, v.updated || 0, v.created || 0); }); D.songs.forEach(s => { ts = Math.max(ts, s.updated || 0); });
     if (!D.versions.length) return;
@@ -3549,6 +3591,7 @@ const SALA = {
         <div style="flex:0 1 auto;min-width:0;display:flex;flex-direction:column"><span style="font-size:12px;font-weight:700;color:var(--muted);line-height:1.1">${top}</span><h1 class="ell" style="flex:none;font-size:20px;line-height:1.15;max-width:100%">${esc(name)}</h1></div>
         <span class="fx ac g6 muted" style="font-size:12px;font-weight:700;white-space:nowrap;flex:none">${status}</span>
         <span class="fx1"></span>
+        <button data-act="gReq" aria-label="Pedir para cadastrar um vídeo${SALA.reqs.some(r => r.st === 'd') ? ' (há pedidos cadastrados)' : ''}" style="${hbtn};border-color:var(--accent);color:var(--accent)"><span style="display:flex">${ic('vadd', 22, 2)}</span>${SALA.reqs.some(r => r.st === 'd') ? '<span style="position:absolute;top:5px;right:5px;width:10px;height:10px;border-radius:50%;border:2px solid var(--surface);box-sizing:border-box;background:var(--ok)"></span>' : ''}</button>
         <button data-act="gSync" aria-label="${slab}" style="${hbtn}"><span style="display:flex;${SALA.syncing ? 'animation:sp .8s linear infinite' : ''}">${ic('gsync', 22, 2.2)}</span><span style="position:absolute;top:5px;right:5px;width:10px;height:10px;border-radius:50%;border:2px solid var(--surface);box-sizing:border-box;background:${sdot}"></span></button>
         <button data-act="gQr" aria-label="Mostrar o QR code da festa" style="${hbtn};padding:4px"><span style="display:flex;width:30px;height:30px;border-radius:4px;overflow:hidden;background:#fff;line-height:0">${SALA.qrSvg(30)}</span></button>
       </div>
@@ -3761,6 +3804,65 @@ function guestLock() {
   if (mv) mv.content = g ? 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover' : 'width=device-width, initial-scale=1, viewport-fit=cover';
 }
 ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => { if (SALA.guest()) e.preventDefault(); }, { passive: false }));
+
+/* ---- pedir cadastro de vídeo (convidado) e atender os pedidos (dono/moderador) ---- */
+SHEETS.greq = () => {
+  const g = ui.greq || (ui.greq = { url: '', note: '' }), tab = ui.greqTab || 'new', rs = SALA.reqs;
+  const seg = `<div style="padding:12px 20px 0"><div class="seg">${[['new', 'Novo pedido'], ['mine', 'Meus pedidos' + (rs.length ? ' · ' + rs.length : '')]].map(x => `<button class="${tab === x[0] ? 'sel' : ''}" data-act="greqTab" data-v="${x[0]}">${x[1]}</button>`).join('')}</div></div>`;
+  const head = `<div class="sh-t"><div class="fx1"><h3>Pedir cadastro de vídeo<small>Música que não está no catálogo</small></h3></div>${ib('close', 'closeSheet', 'Fechar')}</div>${seg}`;
+  if (tab === 'new') return {
+    label: 'Pedir cadastro de vídeo',
+    html: `${head}<div class="sh-b" style="padding-top:10px">
+      <p class="muted" style="margin:0;font-size:13px;line-height:1.45">Cole o link de um vídeo de karaokê do YouTube. O dono da festa ou um moderador confere e cadastra como música nova ou como versão de uma que já existe.</p>
+      <p style="margin:16px 0 4px;font-weight:700">Link do vídeo</p><div class="field"><input id="greq-url" data-enter="gReqSend" inputmode="url" placeholder="https://youtu.be/…" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(g.url)}"></div>
+      <p style="margin:14px 0 4px;font-weight:700">Recado <span class="muted" style="font-weight:500">(opcional)</span></p><div class="field"><input id="greq-note" data-enter="gReqSend" placeholder="Ex.: é a versão com guia" maxlength="80" autocomplete="off" value="${esc(g.note)}"></div>
+      <div class="muted" style="margin-top:12px;font-size:12px;line-height:1.4">Se alguém já pediu esse mesmo vídeo, os pedidos se juntam: o dono vê um só e todos que pediram acompanham o status.</div>
+      <div class="muted" style="margin-top:8px;font-size:12px;text-align:center">Você entrou como <b style="color:var(--text)">${esc(SALA.name())}</b> · o pedido aparece com o seu nome</div></div>
+      ${shFoot(btn(g.busy ? 'Enviando…' : 'Enviar pedido', 'gReqSend', { cls: 'primary grow lg', dis: !!g.busy || !SALA.live() }))}`
+  };
+  const row = r => {
+    const done = r.st === 'd'; const more = r.n > 0 ? `<div class="muted" style="font-size:12px">${SALA.ago(r.ts)} · mais ${r.n} ${r.n === 1 ? 'pessoa pediu' : 'pessoas pediram'} o mesmo</div>` : `<div class="muted" style="font-size:12px">enviado ${SALA.ago(r.ts)}</div>`;
+    let state, act = '';
+    if (!done) state = `<div class="fx ac g6" style="font-size:12px;font-weight:700;color:var(--muted)"><span class="dot" style="background:#E08A00"></span>Aguardando cadastro</div>${more}`;
+    else {
+      state = `<div class="fx ac g6" style="font-size:12px;font-weight:700;color:var(--ok)">${ic('check', 14, 2.6)}${r.cat && !SALA.stale ? 'Cadastrado · já no catálogo' : 'Cadastrado'}</div><div class="muted" style="font-size:12px">${SALA.stale ? 'Atualize o catálogo para encontrar' : r.cat ? 'Já dá para pedir a música' : 'O catálogo da festa ainda vai atualizar'}</div>`;
+      act = (SALA.stale ? btn('Atualizar', 'gSync', { cls: 'primary sm', icon: 'gsync', is: 16 }) : r.cat ? btn('Procurar', 'gReqFind', { cls: 'primary sm', d: { code: r.code } }) : '') + ib('close', 'gReqDis', 'Dispensar', { s: 20, cls: 'bd', d: { r: r.r } });
+    }
+    return `<div class="fx ac g12" style="padding:12px 0;border-bottom:1px solid var(--line)"><img src="${thumbUrl(r.vid)}" alt="" width="72" height="40" loading="lazy" style="border-radius:8px;object-fit:cover;flex:none;background:var(--line)"><div class="fx1" style="min-width:0"><div class="ell" style="font-size:14px;font-weight:700">${esc(r.t || 'Vídeo ' + r.vid)}</div>${state}</div>${act}</div>`;
+  };
+  return {
+    label: 'Meus pedidos',
+    html: `${head}<div class="sh-b" style="padding-top:4px">${rs.length ? rs.map(row).join('') : '<div class="muted" style="padding:20px 2px;font-size:14px">Você ainda não pediu nenhum cadastro.</div>'}</div>`
+  };
+};
+document.addEventListener('input', e => {
+  const t = e.target; if (!t || (t.id !== 'greq-url' && t.id !== 'greq-note')) return;
+  const g = ui.greq || (ui.greq = { url: '', note: '' }); if (t.id === 'greq-url') g.url = t.value; else g.note = t.value;
+});
+Object.assign(ACT, {
+  gReq() { ui.greqTab = ui.greqTab || 'new'; openSheet({ type: 'greq' }); },
+  greqTab(d) { ui.greqTab = d.v; render(); },
+  async gReqSend() {
+    const g = ui.greq || (ui.greq = { url: '', note: '' }); if (g.busy) return;
+    const vid = parseVid(g.url || ''); if (!vid) return toast('Cole o link de um vídeo do YouTube.');
+    if (!SALA.live()) return toast('Sem conexão com a sala. Tentando reconectar…');
+    g.busy = true; render();
+    let info = { title: '', channel: '' };
+    try { info = await Promise.race([oembed(vid), new Promise((_, no) => setTimeout(no, 3000))]); } catch (e) { }
+    if (!SALA.send({ t: 'req', id: uid(), vid, title: info.title || '', ch: info.channel || '', note: g.note || '' })) { g.busy = false; render(); }
+  },
+  gReqDis(d) { SALA.send({ t: 'rdis', r: d.r }); },
+  gReqFind(d) { ui.sheets = []; SALA.g.f = SALA.gNew().f; SALA.g.q = String(d.code || '').slice(0, 6); SALA.g.openId = null; SALA.gStart(true); render(); },
+  reqTog() { ui.reqOpen = ui.reqOpen === false; render(); },
+  reqUse(d) {
+    const r = SALA.reqs.find(x => x.r === d.r); if (!r) return;
+    if (!ui.draft || ui.draft.mode === 'edit') ui.draft = newDraft('new');
+    ui.draft.url = 'https://www.youtube.com/watch?v=' + r.vid; ui.draft.vid = '';
+    render(); onUrlInput();
+    const f = $('#f-url'); if (f && f.scrollIntoView) f.scrollIntoView({ block: 'center' });
+  },
+  reqDis(d) { SALA.send({ t: 'rdis', r: d.r }); }
+});
 
 </script>
 </body>

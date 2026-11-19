@@ -65,6 +65,14 @@ Ao sair da festa, o moderador volta à fila que tinha antes de entrar. O dono, a
 - **Tela ligada:** o Android derruba a conexão quando a tela apaga, então durante a festa o app pede para manter a tela ligada. Se o aparelho for bloqueado à mão, o app reconecta ao voltar. Se a conexão ficar muda por mais de 70 segundos, ele a refaz sozinho.
 - Sem conexão, dono e moderadores não alteram a fila (o app avisa).
 
+## 6b. Pedidos de cadastro de vídeo (v1.24.0, exige atualizar o Worker da sala)
+- Só o **convidado** tem o botão (vídeo com +, ao lado do sync). Ele cola o link de um vídeo do YouTube (e um recado opcional) e acompanha em "Meus pedidos".
+- Quem pede o mesmo vídeo entra no **mesmo pedido** (o dono vê uma linha só, com "2 pedidos" e os nomes). Cada convidado vê o próprio pedido e quantos outros pediram o mesmo.
+- Dono e moderadores veem o cartão **Pedidos de cadastro** no topo de Cadastrar (celular e tablet). **Cadastrar** preenche o campo URL do YouTube; quando o vídeo aparece no catálogo, a linha mostra "já cadastrado" com o código e o botão vira **Dispensar** (apaga para todos).
+- O convidado vê Aguardando cadastro → Cadastrado. Se o catálogo dele está desatualizado aparece **Atualizar**; depois **Procurar** (busca a música) e o X para dispensar só o dele (só depois de cadastrado).
+- Um vídeo que já está no catálogo da festa não vira pedido (o convidado recebe o código). Limite: 5 pedidos aguardando por pessoa, 200 no total. Os pedidos ficam guardados no Worker e somem com a festa.
+- **Atualização do Worker:** copie o novo `worker-sala.js` e rode de novo o deploy (mesmo passo da seção 2). Sem isso, o botão aparece mas os pedidos não funcionam.
+
 ## 7. Problemas comuns
 - **"Sala não encontrada. Confira o código."** O código está errado ou a festa foi encerrada.
 - **"A festa acabou."** O dono encerrou a festa (ou ela ficou 3 dias sem uso).
