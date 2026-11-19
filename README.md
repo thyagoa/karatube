@@ -186,16 +186,21 @@ Cada um tem a **sua** base, mas dá para trocar arquivos e as duas bases crescer
 | **Backup (só para você)** | Guardar uma cópia sua ou levar para outro aparelho seu | Tudo: músicas, versões, listas, histórico, notas, quantas vezes cantou. Os códigos continuam os mesmos |
 | **Exportar para outra pessoa** | Dar músicas a um amigo | Só o catálogo: títulos, cantores, links dos vídeos, tom, voz, tags, letra e capa. Sem notas, favoritas, listas, histórico nem vezes cantadas, e sem os seus códigos |
 
-**Exportar:** Ajustes › **Exportar para outra pessoa** › **Exportar catálogo**. Abre a lista de apps do Android (WhatsApp, e-mail, Drive, Quick Share…) para enviar o arquivo direto. Se o aparelho não oferecer isso, o arquivo vai para a pasta Downloads.
+**Exportar:** Ajustes › **Exportar para outra pessoa**. Há dois caminhos:
+- **Escolher músicas…:** busque, marque a música inteira ou abra a música e marque só as versões que quiser (a caixa fica "pela metade" quando só parte vai). Cada versão mostra a miniatura do vídeo, o canal e as estrelas, para você saber qual é qual. Os botões **Marcar todas** e **Limpar** valem para o que está na lista.
+- **Exportar tudo:** leva o catálogo inteiro.
+
+Nos dois casos aparece uma tela de **conferência** com a contagem, o que vai e o que fica de fora, e o tamanho do arquivo. Aí você toca em **Enviar** (abre a lista de apps do Android: WhatsApp, e-mail, Drive, Quick Share…) ou em **Salvar em Downloads**.
 
 **Importar:** Ajustes › **Backup (só para você)** › **Importar** e escolha o arquivo. O app reconhece sozinho que é um catálogo de outra pessoa e mostra, antes de gravar qualquer coisa:
 - **Músicas novas:** entram com um código livre da **sua** base.
 - **Já existem:** a música (mesmo vídeo, ou mesmo título e primeiro cantor) já está na sua base. Entram **só as versões (vídeos) que você ainda não tem**, como a próxima versão daquela música. Os seus dados dela ficam intactos.
+- **Parecidas:** a música não é igual a nenhuma sua, mas lembra alguma (por exemplo "Gurenge (TV Size)" e a sua "Gurenge", ou o mesmo título com o cantor escrito de outro jeito). O app pergunta, para cada uma: **é uma destas que você já tem** (entram só as versões que faltam nela), **é uma música nova** ou **não importar**. O botão Importar só libera depois de você decidir todas, para não criar músicas duplicadas sem querer.
 - **Nada de novo:** tudo ali você já tem; fica de fora.
 
 Vídeo repetido dentro do arquivo é unificado, e as versões importadas entram como **não verificado** (o "funcionando" ou "quebrado" do seu amigo não vem junto). Você pode desmarcar o que não quiser.
 
-**Relatório:** depois de importar, uma tela mostra o que foi **cadastrado** (com os códigos novos), as **versões adicionadas** a músicas que você já tinha e tudo o que foi **ignorado, com o motivo** (por exemplo "o vídeo já existe em 000123-01"). O botão **Copiar relatório** copia tudo em texto.
+**Relatório:** depois de importar, uma tela mostra o que foi **cadastrado** (com os códigos novos), as **versões adicionadas** a músicas que você já tinha e tudo o que foi **ignorado, com o motivo** (por exemplo "o vídeo já existe em 000123-01"). O que veio de uma decisão sua nas músicas parecidas aparece com a etiqueta **Decisão sua**. O botão **Copiar relatório** copia tudo em texto.
 
 Para trocar nos dois sentidos, é só repetir: cada um exporta e importa o do outro, e o que já existe não duplica.
 

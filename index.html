@@ -264,12 +264,24 @@ body{position:fixed;inset:0;width:100%}
 .guestmode,.guestmode body{overscroll-behavior:none}
 .guestmode .shell,.guestmode .scroll,.guestmode .sheet{touch-action:pan-x pan-y}
 
+/* exportar / importar catálogo: caixas de marcar, cartões de música, opções */
+.ckb{flex:none;width:24px;height:24px;border-radius:7px;border:2px solid var(--muted);background:var(--surface);display:flex;align-items:center;justify-content:center;color:var(--onAccent)}
+.ckb.on,.ckb.part{background:var(--accent);border-color:var(--accent)}
+.ckhit{flex:none;width:52px;display:flex;align-items:center;justify-content:center;border:0;background:none;padding:0;align-self:stretch;color:var(--text)}
+.rdo{flex:none;width:22px;height:22px;border-radius:50%;border:2px solid var(--muted);background:var(--surface);display:flex;align-items:center;justify-content:center}
+.rdo.on{border-color:var(--accent)}.rdo.on::after{content:'';width:10px;height:10px;border-radius:50%;background:var(--accent)}
+.xcard{flex:none;border-radius:16px;background:var(--surface);border:1px solid var(--line);overflow:hidden;margin-bottom:10px}
+.xcard.on{border-color:var(--accent)}
+.xcard.warn{border:2px solid var(--star)}
+.xrow{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;text-align:left;color:var(--text)}
+.xvers{border-top:1px solid var(--line);background:var(--surface2);padding:4px 0 6px}
+
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.22.1",APP_BUILD=1795053761,MGR=false;
+const APP_VERSION="1.23.0",APP_BUILD=1795104775,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1049,8 +1061,8 @@ function pickFile(accept) {
   });
 }
 /* ---------- exportar para outra pessoa: só o catálogo, sem dados pessoais e sem códigos (quem importa recebe os códigos livres dele) ---------- */
-function buildShareExport(ids) {
-  const set = ids ? new Set(ids) : null;
+function buildShareExport(ids, codes) {
+  const set = ids ? new Set(ids) : null, cs = codes ? new Set(codes) : null;
   const songs = D.songs.filter(s => !set || set.has(s.id));
   const keep = new Set(songs.map(s => s.id));
   const outS = songs.map(s => ({
@@ -1058,15 +1070,22 @@ function buildShareExport(ids) {
     lang: s.lang || '', origin: s.origin || '', year: s.year || '', lyric: s.lyric || '', lyricRoman: s.lyricRoman || '', art: s.art || ''
   }));
   const outV = [];
-  songs.forEach(s => (X.vers[s.id] || []).forEach(v => outV.push({
+  songs.forEach(s => (X.vers[s.id] || []).filter(v => !cs || cs.has(v.code)).forEach(v => outV.push({
     song: s.id, url: v.url || '', vid: v.vid || '', ytTitle: v.ytTitle || '', channel: v.channel || '', key: v.key || '', voice: v.voice || '',
     vtype: v.vtype || '', script: v.script || '', tags: (v.tags || []).slice(), link: v.link || 'unverified'
   })));
   return { app: 'karatube', kind: 'share', v: 1, exportedAt: now(), songs: outS, versions: outV };
 }
 function shareExportName() { const d = new Date(); return `karatube-catalogo-${d.getFullYear()}-${pad(d.getMonth() + 1, 2)}-${pad(d.getDate(), 2)}.json`; }
-async function shareCatalog() {
-  const json = JSON.stringify(buildShareExport()), name = shareExportName();
+// seleção {codigo: true} → músicas e versões que vão no arquivo
+function shareSelection(sel) {
+  const codes = Object.keys(sel || {}).filter(c => sel[c] && X.ver[c]);
+  const ids = D.songs.filter(s => (X.vers[s.id] || []).some(v => sel[v.code])).map(s => s.id);
+  return { ids, codes };
+}
+function saveCatalog(ids, codes) { const json = JSON.stringify(buildShareExport(ids, codes)); downloadFile(shareExportName(), json); return 'downloaded'; }
+async function shareCatalog(ids, codes) {
+  const json = JSON.stringify(buildShareExport(ids, codes)), name = shareExportName();
   try {
     const file = new File([json], name, { type: 'application/json' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Catálogo do KaraTube', text: 'Músicas do KaraTube para importar no seu catálogo' }); return 'shared'; }
@@ -1085,21 +1104,35 @@ function planShare(j, filename) {
     for (const v of vers) { const k = shKey(v), h = k && have.get(k); if (h) { tgt = h.local ? { local: h.local } : { file: h.file }; why = 'mesmo vídeo'; break; } }
     if (!tgt) { const h = D.songs.find(x => sameWork(fs, x)); if (h) { tgt = { local: h.id }; why = 'mesmo título e cantor'; } }
     if (!tgt) { const e = items.find(i => !i.tgt && sameWork(i.song, fs)); if (e) { tgt = { file: e.ref }; why = 'repetida dentro do arquivo'; } }
-    const add = [], skip = [], seen = new Set();
+    // parecida (mas não igual): mesma régua do cadastro; quem decide é o usuário
+    let sim = null;
+    if (!tgt) {
+      const ms = matchSongs({ titles: [fs.title, fs.roman].filter(Boolean), singers: (fs.singers || []).filter(Boolean) }, { max: 4 });
+      if (ms.length && ms[0].exact) { tgt = { local: ms[0].id }; why = 'mesmo título e cantor'; }
+      else if (ms.length) sim = { cands: ms.map(m => ({ id: m.id, why: m.why })), dec: null };
+    }
+    const add = [], skip = [], rows = [], seen = new Set();
     vers.forEach(v => {
       const k = shKey(v), h = k && have.get(k);
-      if (h) { skip.push({ v, why: h.local ? 'o vídeo já existe em ' + h.code : 'o vídeo está repetido dentro do arquivo' }); return; }
-      if (k && seen.has(k)) { skip.push({ v, why: 'o vídeo está repetido dentro do arquivo' }); return; }
-      add.push(Object.assign({}, v, { link: 'unverified' }));
+      if (h) { const w = h.local ? 'o vídeo já existe em ' + h.code : 'o vídeo está repetido dentro do arquivo'; skip.push({ v, why: w }); rows.push({ v, st: 'skip', why: w }); return; }
+      if (k && seen.has(k)) { const w = 'o vídeo está repetido dentro do arquivo'; skip.push({ v, why: w }); rows.push({ v, st: 'skip', why: w }); return; }
+      add.push(Object.assign({}, v, { link: 'unverified' })); rows.push({ v, st: 'add' });
       if (k) { seen.add(k); have.set(k, tgt && tgt.local ? { local: tgt.local, code: '(esta importação)' } : { file: tgt ? tgt.file : fs.ref }); }
     });
-    items.push({ ref: fs.ref, song: fs, vers, add, skip, tgt, why, checked: add.length > 0 });
+    items.push({ ref: fs.ref, song: fs, vers, rows, add, skip, tgt, why, sim: add.length ? sim : null, checked: add.length > 0 });
   });
   return { kind: 'share', file: j, filename: filename || 'catalogo.json', items };
 }
 function applyShare(plan) {
   const log = { when: now(), file: plan.filename, novas: [], extras: [], ignoradas: [], erro: '' };
   const map = {}, t = now();
+  // músicas parecidas: aplica a decisão do usuário (sem decisão = fica de fora)
+  plan.items.forEach(it => {
+    if (!it.sim) return;
+    const d = it.sim.dec || 'skip';
+    if (d === 'skip') it.checked = false;
+    else if (d !== 'new') { it.tgt = { local: d }; it.why = 'decisão sua'; }
+  });
   const nextVer = id => { let max = 0; D.versions.forEach(v => { if (v.song === id) { const k = parseInt(v.code.split('-')[1], 10); if (k > max) max = k; } }); return id + '-' + pad(max + 1, 2); };
   const mk = (id, v) => ({ code: nextVer(id), song: id, url: v.url || '', vid: v.vid || '', ytTitle: v.ytTitle || '', channel: v.channel || '', key: v.key || '', voice: v.voice || '', vtype: v.vtype || '', script: v.script || '', tags: (v.tags || []).slice(), link: 'unverified', rating: 0, vnote: '', sung: 0, lastSung: null, created: t, updated: t });
   const sing = s => (s.singers || [])[0] || '';
@@ -1109,14 +1142,14 @@ function applyShare(plan) {
       D.songs.push({ id, created: t, updated: t, fav: false, title: f.title || '', roman: f.roman || '', singers: (f.singers || []).slice(), coverOf: '', lang: f.lang || '', origin: f.origin || '', year: f.year || '', lyric: f.lyric || '', lyricRoman: f.lyricRoman || '', note: '', art: f.art || '' });
       map[it.ref] = id;
       const codes = it.add.map(v => { const x = mk(id, v); D.versions.push(x); return x.code; });
-      log.novas.push({ id, title: f.title, singer: sing(f), codes });
+      log.novas.push({ id, title: f.title, singer: sing(f), codes, dec: !!it.sim });
     });
     plan.items.filter(i => i.tgt && i.checked && i.add.length).forEach(it => {
       const id = it.tgt.local || map[it.tgt.file], f = it.song;
       if (!id || !D.songs.some(s => s.id === id)) { log.ignoradas.push({ title: f.title, singer: sing(f), why: 'a música de destino não foi importada', vers: it.add.length }); return; }
       const s = D.songs.find(x => x.id === id);
       const codes = it.add.map(v => { const x = mk(id, v); D.versions.push(x); return x.code; });
-      log.extras.push({ id, title: s.title, singer: sing(s), from: f.title, codes });
+      log.extras.push({ id, title: s.title, singer: sing(s), from: f.title, codes, dec: !!it.sim, fromTitle: f.title, fromSinger: sing(f) });
     });
   } catch (e) { log.erro = e.message; }
   // o que ficou de fora, com o motivo
@@ -1125,7 +1158,7 @@ function applyShare(plan) {
     if (!it.add.length) {
       const dst = it.tgt ? (it.tgt.local ? it.tgt.local : (map[it.tgt.file] || 'outra música do arquivo')) : '';
       log.ignoradas.push({ title: f.title, singer: sing(f), why: 'nada de novo: ' + (it.why || 'sem versões') + (dst ? ' (' + dst + ')' : ''), vers: 0 });
-    } else if (!it.checked) log.ignoradas.push({ title: f.title, singer: sing(f), why: 'você desmarcou', vers: it.add.length });
+    } else if (!it.checked) log.ignoradas.push(it.sim ? { title: f.title, singer: sing(f), why: it.sim.dec ? 'você escolheu não importar esta música parecida' : 'música parecida sem decisão', vers: it.add.length, dec: !!it.sim.dec } : { title: f.title, singer: sing(f), why: 'você desmarcou', vers: it.add.length });
     if (it.checked && it.add.length) it.skip.forEach(sk => log.ignoradas.push({ title: f.title, singer: sing(f), why: 'versão ignorada: ' + sk.why, vers: 1, vid: sk.v.vid || sk.v.url || '' }));
   });
   plan.items.forEach(it => { if (it.tgt && !map[it.ref]) { const d = it.tgt.local || map[it.tgt.file]; if (d) map[it.ref] = d; } });
@@ -1137,11 +1170,11 @@ function applyShare(plan) {
 function impLogText(log) {
   const L = ['Importação de ' + (log.file || 'catálogo') + ' · ' + fmtDay(log.when), ''];
   L.push('CADASTRADAS (' + log.novas.length + ' músicas novas)');
-  log.novas.forEach(n => L.push('  ' + n.id + ' · ' + n.title + (n.singer ? ' · ' + n.singer : '') + ' · versões: ' + n.codes.join(', ')));
+  log.novas.forEach(n => L.push('  ' + n.id + ' · ' + n.title + (n.singer ? ' · ' + n.singer : '') + ' · versões: ' + n.codes.join(', ') + (n.dec ? ' [decisão sua: música nova]' : '')));
   L.push('', 'VERSÕES ADICIONADAS A MÚSICAS QUE JÁ EXISTIAM (' + log.extras.reduce((a, x) => a + x.codes.length, 0) + ')');
-  log.extras.forEach(n => L.push('  ' + n.id + ' · ' + n.title + (n.singer ? ' · ' + n.singer : '') + ' · novas: ' + n.codes.join(', ')));
+  log.extras.forEach(n => L.push('  ' + n.id + ' · ' + n.title + (n.singer ? ' · ' + n.singer : '') + ' · novas: ' + n.codes.join(', ') + (n.dec ? ' [decisão sua: ' + n.fromTitle + (n.fromSinger ? ' · ' + n.fromSinger : '') + ' é esta música]' : '')));
   L.push('', 'IGNORADAS (' + log.ignoradas.length + ')');
-  log.ignoradas.forEach(n => L.push('  ' + n.title + (n.singer ? ' · ' + n.singer : '') + ' · ' + n.why + (n.vid ? ' · ' + n.vid : '')));
+  log.ignoradas.forEach(n => L.push('  ' + n.title + (n.singer ? ' · ' + n.singer : '') + ' · ' + n.why + (n.vid ? ' · ' + n.vid : '') + (n.dec ? ' [decisão sua]' : '')));
   if (log.erro) L.push('', 'ERRO: ' + log.erro);
   return L.join('\n');
 }
@@ -2102,8 +2135,8 @@ function settingsCards() {
       <div class="mono muted" style="font-size:12px;margin-top:8px">${last ? 'Último backup: ' + fmtDay(last) + ' · ' : 'Nenhum backup ainda · '}${D.songs.length} músicas · ${D.versions.length} versões</div>
       <div class="fx g8" style="margin-top:10px">${btn('Compartilhar', 'share', { cls: 'primary grow', icon: 'share', style: 'flex:1.5;height:48px' })}${btn('Importar', 'import', { cls: 'grow', icon: 'upload', style: 'height:48px' })}</div>
       <button class="btn text" style="width:100%;margin-top:4px" data-act="saveDevice">Só salvar neste aparelho (Downloads)</button></div>`,
-    shareCat: `<div class="card"><h3>Exportar para outra pessoa</h3><p>Só o catálogo: títulos, cantores, links dos vídeos, tom e capa. Sem notas, listas, histórico nem quantas vezes você cantou. Quem importar recebe os códigos livres da própria base.</p>
-      <div style="margin-top:10px">${btn('Exportar catálogo', 'shareCat', { cls: 'grow', icon: 'share', style: 'height:48px;width:100%' })}</div></div>`,
+    shareCat: `<div class="card"><h3>Exportar para outra pessoa</h3><p>Só o catálogo: títulos, cantores, links dos vídeos, tom, voz, tags, letra e capa. Sem notas, estrelas, listas, histórico nem quantas vezes você cantou. Quem importar recebe os códigos livres da própria base.</p>
+      <div class="col g8" style="margin-top:10px">${btn('Escolher músicas…', 'expStart', { cls: 'primary', icon: 'check', style: 'height:52px;width:100%', d: { v: 'pick' } })}${btn(`Exportar tudo · ${D.songs.length} ${D.songs.length === 1 ? 'música' : 'músicas'}`, 'expStart', { cls: '', style: 'height:48px;width:100%', d: { v: 'all' } })}</div></div>`,
     device: `<div class="card"><h3>Este aparelho</h3>
       <p style="margin-top:10px;font-weight:700">Apelido</p><div class="field" style="margin-top:4px"><input id="devname" data-change="devName" value="${esc(dv.name)}" placeholder="Ex.: Celular do Thyago" autocomplete="off" maxlength="30"></div>
       <p style="margin-top:10px;font-weight:700">Faixa de códigos</p><div class="field" style="margin-top:4px"><select id="devslot" data-change="devSlot" style="flex:1;border:0;background:transparent;font:500 15px 'Manrope',sans-serif;height:46px;outline:0">${Array.from({ length: SLOTS }, (_, k) => { const o = devs.find(x => x.slot === k && x.id !== dv.id); return `<option value="${k}" ${dv.slot === k ? 'selected' : ''} ${o ? 'disabled' : ''}>${slotLabel(k)}${o ? ' · ' + esc(o.name) : ''}</option>`; }).join('')}</select></div>
@@ -2452,37 +2485,131 @@ SHEETS.import = t => {
 };
 
 /* ---------- importar catálogo de outra pessoa: músicas novas ganham código livre daqui; nas que já existem entram só as versões que faltam ---------- */
+/* ---------- caixas de marcar e linhas de versão (exportar e importar catálogo) ---------- */
+const MINUS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>';
+const ckb = st => `<span class="ckb ${st === 2 ? 'on' : st === 1 ? 'part' : ''}">${st === 2 ? ic('check', 16, 3.4) : st === 1 ? MINUS : ''}</span>`;
+const xvMeta = v => [v.key && 'Tom ' + v.key, v.voice, v.vtype].filter(Boolean).map(esc).join(' · ');
+// miniatura + canal + tom/voz (+ linha extra) de uma versão, daqui ou do arquivo
+const xvInfo = (s, v, extra) => `${vthumb(s, v, 64, 48, 10)}<span class="fx1" style="display:flex;flex-direction:column;gap:2px;min-width:0"><b class="ell" style="font-size:13px">${esc(v.channel || v.ytTitle || 'Sem canal')}</b><span class="muted ell" style="font-size:12px">${xvMeta(v) || '&nbsp;'}</span>${extra || ''}</span>`;
+const xvStars = v => `<span class="fx ac" style="margin-top:1px">${v.rating ? stars(v.rating, 13) : '<span class="muted" style="font-size:11px">sem nota</span>'}</span>`;
+const xchev = open => `<span style="flex:none;display:flex;transition:transform .15s;transform:rotate(${open ? 180 : 0}deg);color:var(--muted)">${ic('chev', 20, 2.4)}</span>`;
+
+/* ---------- exportar para outra pessoa: escolher músicas e versões ---------- */
+const expState = (t, s) => { const vs = X.vers[s.id] || []; const n = vs.filter(v => t.sel[v.code]).length; return { n, tot: vs.length, st: n === 0 ? 0 : n === vs.length ? 2 : 1 }; };
+function expList(t) {
+  const q = norm(t.q || '');
+  const l = D.songs.filter(s => !q || (X.text[s.id] || '').includes(q)).filter(s => t.f !== 'sel' || expState(t, s).n);
+  return l.sort((a, b) => { const x = norm(a.title), y = norm(b.title); return x < y ? -1 : x > y ? 1 : 0; });
+}
+const EXP_MAX = 120;
+function expRows(t) {
+  const list = expList(t);
+  if (!list.length) return `<div class="hint" style="font-size:14px;text-align:center;padding:24px 8px">${t.f === 'sel' ? 'Nenhuma música marcada ainda.<br>Toque na caixa de uma música para marcar.' : 'Nenhuma música encontrada.'}</div>`;
+  const vrow = (s, v) => { const on = !!t.sel[v.code]; return `<button class="xrow" data-act="expVer" data-code="${v.code}" aria-pressed="${on}" aria-label="${on ? 'Desmarcar' : 'Marcar'} ${esc(v.channel || v.code)}" style="min-height:64px;padding:6px 14px 6px 0"><span class="ckhit" style="min-height:0">${ckb(on ? 2 : 0)}</span>${xvInfo(s, v, xvStars(v))}</button>`; };
+  const html = list.slice(0, EXP_MAX).map(s => {
+    const e = expState(t, s), open = t.open === s.id, vs = X.vers[s.id] || [];
+    const cnt = e.n === 0 ? `${e.tot} ${e.tot === 1 ? 'versão' : 'versões'}` : e.st === 2 ? `Todas as ${e.n} ${e.n === 1 ? 'versão' : 'versões'}` : `${e.n} de ${e.tot} versões`;
+    return `<div class="xcard ${e.n ? 'on' : ''}"><div class="fx ac"><button class="ckhit" data-act="expTog" data-id="${s.id}" aria-pressed="${e.st === 2 ? 'true' : e.st === 1 ? 'mixed' : 'false'}" aria-label="${e.st === 2 ? 'Desmarcar' : 'Marcar'} ${esc(s.title)}" style="min-height:72px">${ckb(e.st)}</button>
+      <button class="xrow" data-act="expOpen" data-id="${s.id}" aria-expanded="${open}" style="flex:1;min-width:0;padding:10px 12px 10px 0">${songThumb(s, bestVersion(s.id), 52, 22, 10)}<span class="fx1" style="display:flex;flex-direction:column;gap:2px;min-width:0"><b class="ell jp" style="font-size:15px">${esc(s.title)}</b><span class="muted ell" style="font-size:12px">${esc([singersStr(s), s.lang, s.year].filter(Boolean).join(' · '))}</span><span style="font-size:12px;font-weight:800;color:${e.n ? 'var(--accent)' : 'var(--muted)'}">${cnt}</span></span>${xchev(open)}</button></div>
+      ${open ? `<div class="xvers">${vs.map(v => vrow(s, v)).join('')}</div>` : ''}</div>`;
+  }).join('');
+  return html + (list.length > EXP_MAX ? `<div class="hint" style="font-size:13px;text-align:center">Mostrando ${EXP_MAX} de ${list.length}. Use a busca para achar as outras.</div>` : '');
+}
+SHEETS.expSel = t => {
+  const nV = Object.keys(t.sel).filter(c => t.sel[c] && X.ver[c]).length, nS = D.songs.filter(s => expState(t, s).n).length;
+  return {
+    label: 'Escolher músicas', big: true,
+    html: shHead('Escolher músicas', 'Para enviar a outra pessoa') + `<div class="pad" style="flex:none;padding-top:6px"><label class="searchbox">${ic('search', 20)}<input id="exq" value="${esc(t.q || '')}" placeholder="Título, cantor ou código" autocomplete="off"></label>
+      <div class="fx ac g8" style="padding-top:10px"><button class="chip ${t.f !== 'sel' ? 'sel' : ''}" data-act="expF" data-v="all">Todas</button><button class="chip ${t.f === 'sel' ? 'sel' : ''}" data-act="expF" data-v="sel">Marcadas · ${nS}</button></div>
+      <div class="fx g4" style="padding-top:4px">${btn('Marcar todas', 'expAll', { cls: 'text sm' })}${btn('Limpar', 'expClr', { cls: 'text sm' })}</div></div>
+    <div class="sh-b" id="exlist" data-sk="exl" style="padding-top:10px">${expRows(t)}</div>
+    ${shFoot(`<div class="fx1" style="align-self:center;line-height:1.3"><b style="font-size:15px">${nS} ${nS === 1 ? 'música' : 'músicas'} · ${nV} ${nV === 1 ? 'versão' : 'versões'}</b><div class="muted" style="font-size:12px">vão para o arquivo</div></div>` + btn('Continuar', 'expGo', { cls: 'primary lg', dis: !nV, style: 'min-width:132px' }))}`
+  };
+};
+// tela de conferência antes de enviar
+SHEETS.expConf = t => {
+  const { ids, codes } = shareSelection(t.sel), cs = new Set(codes);
+  const songs = D.songs.filter(s => ids.includes(s.id));
+  const kb = Math.max(1, Math.round(JSON.stringify(buildShareExport(ids, codes)).length / 1024));
+  const arts = songs.filter(s => s.art && !/^https?:/i.test(s.art)).length;
+  const line = s => { const vs = X.vers[s.id] || [], n = vs.filter(v => cs.has(v.code)).length; return `<div style="padding:10px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:baseline"><b class="jp" style="font-size:14px;min-width:0">${esc(s.title)}</b><span class="muted" style="font-size:12px;font-weight:700;white-space:nowrap">${n} de ${vs.length} ${vs.length === 1 ? 'versão' : 'versões'}</span></div>`; };
+  const lab = (c, x) => `<div style="font-size:12px;font-weight:800;letter-spacing:.06em;color:${c}">${x}</div>`;
+  return {
+    label: 'Conferir antes de enviar', big: true,
+    html: shHead('Conferir antes de enviar') + `<div class="sh-b" style="padding-top:6px">
+      <div class="card" style="margin:0 0 12px"><div style="font-size:22px;font-weight:800;letter-spacing:-.02em">${songs.length} ${songs.length === 1 ? 'música' : 'músicas'} · ${codes.length} ${codes.length === 1 ? 'versão' : 'versões'}</div><div class="muted" style="font-size:13px;margin-top:2px">Arquivo <span class="mono" style="font-weight:700;color:var(--text)">${esc(shareExportName())}</span> · cerca de ${kb} KB</div>
+        <div style="margin-top:10px;border-top:1px solid var(--line);max-height:220px;overflow-y:auto">${songs.slice(0, 200).map(line).join('')}${songs.length > 200 ? `<div class="muted" style="font-size:12px;padding:8px 0">e mais ${songs.length - 200} músicas</div>` : ''}</div>
+        <div style="margin-top:8px">${btn('Mudar a escolha', 'expBack', { cls: 'text sm' })}</div></div>
+      <div class="card" style="margin:0 0 12px">${lab('var(--ok)', 'VAI NO ARQUIVO')}<div style="margin-top:6px;font-size:14px;line-height:1.5">Título, cantores, idioma, origem, ano, letra e capa; de cada versão, o link do vídeo, tom, voz, tipo e tags.</div>
+        <div style="margin-top:14px">${lab('var(--muted)', 'FICA DE FORA')}</div><div style="margin-top:6px;font-size:14px;line-height:1.5">Seus códigos, notas, estrelas, favoritas, listas, histórico e quantas vezes cantou. A pessoa recebe códigos livres da base dela, e as versões entram como “não verificado”.</div></div>
+      ${arts ? `<div class="banner" style="margin:0 0 12px"><b>${arts} ${arts === 1 ? 'capa guardada' : 'capas guardadas'} no aparelho ${arts === 1 ? 'aumenta' : 'aumentam'} o arquivo.</b></div>` : ''}
+    </div>${shFoot(btn('Salvar em Downloads', 'expSave', { cls: 'lg', style: 'flex:none' }) + btn('Enviar', 'expSend', { cls: 'primary grow lg', icon: 'share' }))}`
+  };
+};
+SHEETS.expDone = t => ({
+  label: 'Arquivo enviado', big: true,
+  html: shHead('Arquivo pronto') + `<div class="sh-b" style="padding-top:20px;text-align:center"><div style="width:72px;height:72px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;margin:0 auto;color:var(--ok)">${ic('check', 38, 2.8)}</div>
+    <h3 style="margin:16px 0 0;font-size:22px">${t.how === 'shared' ? 'Arquivo enviado' : 'Arquivo salvo'}</h3>
+    <p class="muted" style="margin:8px auto 0;max-width:300px;font-size:14px;line-height:1.5">${t.nS} ${t.nS === 1 ? 'música' : 'músicas'} e ${t.nV} ${t.nV === 1 ? 'versão' : 'versões'} em <span class="mono" style="font-size:12px;color:var(--text)">${esc(t.name)}</span>${t.how === 'shared' ? '' : ' (pasta Downloads)'}.</p>
+    <div class="card" style="margin-top:20px;text-align:left"><div style="font-size:12px;font-weight:800;letter-spacing:.06em" class="muted">COMO A PESSOA IMPORTA</div><ol style="margin:8px 0 0;padding-left:20px;font-size:14px;line-height:1.55"><li>Abre o arquivo pelo compartilhar do Android, ou vai em Ajustes › Importar.</li><li>Confere o que é novo e o que já existe, e decide as músicas parecidas.</li><li>Recebe um relatório com os códigos novos e o que foi ignorado.</li></ol></div></div>
+    ${shFoot(btn('Escolher outras músicas', 'expAgain', { cls: 'lg', style: 'flex:none' }) + btn('Concluir', 'closeSheet', { cls: 'primary grow lg' }))}`
+});
+
+/* ---------- importar catálogo de outra pessoa ---------- */
+const vtxt = n => `${n} ${n === 1 ? 'versão' : 'versões'}`;
+const fileSong = i => ({ id: '000000', title: i.song.title });
 SHEETS.impShare = t => {
-  const p = t.plan, ok = p.items.filter(i => i.checked);
-  const novas = p.items.filter(i => !i.tgt && i.add.length), extras = p.items.filter(i => i.tgt && i.add.length), nada = p.items.filter(i => !i.add.length);
-  const nNew = ok.filter(i => !i.tgt).length, nExtra = ok.filter(i => i.tgt).reduce((a, i) => a + i.add.length, 0);
-  const vtxt = n => `${n} ${n === 1 ? 'versão' : 'versões'}`;
+  const p = t.plan, items = p.items;
+  const sims = items.filter(i => i.sim), novas = items.filter(i => !i.tgt && i.add.length && !i.sim), extras = items.filter(i => i.tgt && i.add.length), nada = items.filter(i => !i.add.length);
+  const pend = sims.filter(i => !i.sim.dec).length;
+  const nNew = novas.filter(i => i.checked).length + sims.filter(i => i.sim.dec === 'new').length;
+  const nExtra = extras.filter(i => i.checked).reduce((a, i) => a + i.add.length, 0) + sims.filter(i => i.sim.dec && i.sim.dec !== 'new' && i.sim.dec !== 'skip').reduce((a, i) => a + i.add.length, 0);
   const dstName = i => { const id = i.tgt && i.tgt.local; const s = id && X.song[id]; return s ? id + ' · ' + s.title : (i.tgt && i.tgt.file ? 'outra música do arquivo' : ''); };
-  const rowNew = i => checkRow(i.song.title, `${esc((i.song.singers || [])[0] || '')} · ${vtxt(i.add.length)}${i.skip.length ? ' (' + i.skip.length + ' repetida' + (i.skip.length === 1 ? '' : 's') + ' ignorada' + (i.skip.length === 1 ? '' : 's') + ')' : ''}`, i.checked, 'impSh', { id: i.ref });
-  const rowExtra = i => checkRow(i.song.title, `já existe: ${esc(dstName(i))} (${i.why}) · entram ${vtxt(i.add.length)} nova${i.add.length === 1 ? '' : 's'}${i.skip.length ? ', ' + i.skip.length + ' já existia' + (i.skip.length === 1 ? '' : 'm') : ''}`, i.checked, 'impSh', { id: i.ref });
-  const rowNada = i => `<div style="padding:10px 4px;border-bottom:1px solid var(--line);opacity:.7"><div class="ell jp" style="font-weight:700;font-size:14px">${esc(i.song.title)}</div><div class="muted" style="font-size:12px">${esc((i.song.singers || [])[0] || '')} · nada de novo: ${esc(i.why || 'sem versões')}${dstName(i) ? ' (' + esc(dstName(i)) + ')' : ''}</div></div>`;
-  const sec = (tt, sub, l, f) => l.length ? `<div class="gh"><b>${tt}</b><span>${sub}</span></div><div class="group">${l.map(f).join('')}</div>` : '';
-  const sumTxt = [nNew ? `${nNew} ${nNew === 1 ? 'música nova' : 'músicas novas'}` : '', nExtra ? `${vtxt(nExtra)} em músicas que já existem` : ''].filter(Boolean).join(' + ');
+  const rowsOf = i => i.rows.map(r => `<div style="display:flex;align-items:center;gap:12px;padding:8px 14px;min-height:56px">${xvInfo(fileSong(i), r.v, `<span style="font-size:12px;font-weight:800;color:${r.st === 'add' ? 'var(--ok)' : 'var(--muted)'}">${r.st === 'add' ? 'Entra' : 'Ignorada: ' + esc(r.why)}</span>`)}</div>`).join('');
+  const card = i => {
+    const none = !i.add.length, open = t.open === i.ref, kind = i.tgt ? 'extra' : 'new';
+    let l1, l2 = '', c2 = 'var(--muted)';
+    if (none) { l1 = `Nada de novo (${esc(i.why || 'sem versões')})`; l2 = dstName(i) ? 'Já existe: ' + esc(dstName(i)) : ''; }
+    else if (kind === 'new') { l1 = `${vtxt(i.add.length)} ${i.add.length === 1 ? 'vai' : 'vão'} entrar`; l2 = i.skip.length ? `${i.skip.length} repetida${i.skip.length === 1 ? '' : 's'} ignorada${i.skip.length === 1 ? '' : 's'}` : ''; }
+    else { l1 = 'Já existe: ' + esc(dstName(i)); l2 = `Mesma música (${esc(i.why)}) · entram ${vtxt(i.add.length)} ${i.add.length === 1 ? 'nova' : 'novas'}${i.skip.length ? ', ' + i.skip.length + ' já existia' + (i.skip.length === 1 ? '' : 'm') : ''}`; c2 = 'var(--ok)'; }
+    return `<div class="xcard ${i.checked && !none ? 'on' : ''}" style="${none ? 'opacity:.75' : ''}"><div class="fx ac">${none ? `<span class="ckhit" style="color:var(--muted)">${ic('close', 20, 2.2)}</span>` : `<button class="ckhit" data-act="impShTog" data-id="${i.ref}" aria-pressed="${i.checked}" aria-label="${i.checked ? 'Desmarcar' : 'Marcar'} ${esc(i.song.title)}" style="min-height:76px">${ckb(i.checked ? 2 : 0)}</button>`}
+      <button class="xrow" data-act="impOpen" data-id="${i.ref}" aria-expanded="${open}" style="flex:1;min-width:0;padding:10px 12px 10px 0"><span class="fx1" style="display:flex;flex-direction:column;gap:2px;min-width:0"><b class="ell jp" style="font-size:15px">${esc(i.song.title)}</b><span class="muted ell" style="font-size:12px">${esc((i.song.singers || [])[0] || '')}</span><span class="muted" style="font-size:12px;font-weight:700">${l1}</span>${l2 ? `<span style="font-size:12px;font-weight:700;color:${c2}">${l2}</span>` : ''}</span>${xchev(open)}</button></div>
+      ${open ? `<div class="xvers">${rowsOf(i)}</div>` : ''}</div>`;
+  };
+  const simCard = i => {
+    const s = i.sim, v0 = i.vers[0] || {};
+    const radio = (key, on, title, sub, why, thumb) => `<button class="xrow" data-act="impSim" data-id="${i.ref}" data-v="${key}" aria-pressed="${on}" style="border-bottom:1px solid var(--line);padding:12px 14px;min-height:60px;${on ? 'background:var(--surface2)' : ''}"><span class="rdo ${on ? 'on' : ''}"></span>${thumb || ''}<span class="fx1" style="display:flex;flex-direction:column;gap:2px;min-width:0"><b style="font-size:14px">${title}</b><span class="muted" style="font-size:12px">${sub}</span>${why ? `<span style="font-size:12px;font-weight:700;color:var(--accent)">${why}</span>` : ''}</span></button>`;
+    const cands = s.cands.map(c => { const x = X.song[c.id]; if (!x) return ''; const n = (X.vers[x.id] || []).length; const w = c.why.join(' · '); return radio(c.id, s.dec === c.id, `${x.id} · ${esc(x.title)}`, `${esc(singersStr(x))} · ${vtxt(n)}`, esc(w.charAt(0).toUpperCase() + w.slice(1)), songThumb(x, bestVersion(x.id), 52, 22, 10)); }).join('');
+    return `<div class="xcard ${s.dec ? 'on' : 'warn'}"><div style="padding:14px 14px 10px"><div class="muted" style="font-size:11px;font-weight:800;letter-spacing:.06em">NO ARQUIVO</div>
+      <div class="fx ac g12" style="margin-top:8px">${vthumb(fileSong(i), v0, 64, 48, 10)}<span class="fx1" style="display:flex;flex-direction:column;gap:2px;min-width:0"><b class="jp" style="font-size:15px">${esc(i.song.title)}</b><span class="muted" style="font-size:12px">${esc(singersStr(i.song))}</span><b class="ell" style="font-size:12px">${esc(v0.channel || v0.ytTitle || '')}</b></span></div>
+      <div style="margin-top:14px;font-size:14px;font-weight:800">É uma destas que você já tem?</div></div>
+      <div style="border-top:1px solid var(--line)">${cands}${radio('new', s.dec === 'new', 'É uma música nova', 'Entra com código novo daqui', '')}${radio('skip', s.dec === 'skip', 'Não importar esta', 'Fica de fora', '')}</div></div>`;
+  };
+  const gh = (tt, sub) => `<div class="gh" style="padding-top:8px"><b>${tt}</b><span>${sub}</span></div>`;
+  const sec = (tt, sub, l, f) => l.length ? gh(tt, sub) + l.map(f).join('') : '';
+  const parts = [nNew ? `${nNew} ${nNew === 1 ? 'música nova' : 'músicas novas'}` : '', nExtra ? `${vtxt(nExtra)} em músicas que já existem` : ''].filter(Boolean);
+  const can = !pend && parts.length;
   return {
     label: 'Importar catálogo', big: true,
-    html: shHead('Importar catálogo de outra pessoa') + `<div class="pad" style="flex:none;padding-top:6px"><div class="card" style="background:var(--surface2);margin:0;padding:12px"><div class="mono" style="font-size:13px;font-weight:600;word-break:break-all">${esc(p.filename)}</div><div class="muted" style="font-size:12px;margin-top:2px">${p.items.length} ${p.items.length === 1 ? 'música' : 'músicas'} no arquivo. Música nova ganha um código livre daqui; em música que já existe entram só os vídeos que você ainda não tem. Nada é gravado antes de você confirmar.</div></div>
-      <div class="fx g8" style="margin-top:8px">${btn('Marcar todas', 'impShAll', { cls: 'text sm', d: { v: '1' } })}${btn('Desmarcar todas', 'impShAll', { cls: 'text sm', d: { v: '0' } })}</div></div>
-    <div class="sh-b" data-sk="imp" style="padding-top:10px">${sec('Músicas novas', 'entram com código novo', novas, rowNew)}${sec('Já existem', 'entram só as versões novas', extras, rowExtra)}${sec('Nada de novo', 'ficam de fora (já existem aqui)', nada, rowNada)}${p.items.length ? '' : '<div class="hint" style="font-size:14px">Este arquivo não tem músicas.</div>'}</div>
-    ${shFoot(btn('Cancelar', 'closeSheet', { cls: 'lg', style: 'flex:none' }) + btn(sumTxt ? 'Importar: ' + sumTxt : 'Nada marcado', 'impShApply', { cls: 'primary grow lg', dis: !sumTxt }))}`
+    html: shHead('Importar catálogo', 'De outra pessoa') + `<div class="pad" style="flex:none;padding-top:6px"><div class="card" style="margin:0;padding:12px 14px"><div class="mono" style="font-size:13px;font-weight:700;word-break:break-all">${esc(p.filename)}</div><div class="muted" style="font-size:12px;margin-top:2px;line-height:1.4">${p.items.length} ${p.items.length === 1 ? 'música' : 'músicas'} · ${p.file.versions.length} ${p.file.versions.length === 1 ? 'versão' : 'versões'} no arquivo. Nada é gravado antes de você confirmar.</div></div>
+      <div class="fx g4" style="padding-top:6px">${btn('Marcar todas', 'impShAll', { cls: 'text sm', d: { v: '1' } })}${btn('Desmarcar todas', 'impShAll', { cls: 'text sm', d: { v: '0' } })}</div></div>
+    <div class="sh-b" data-sk="imp" style="padding-top:2px">${sims.length ? gh('Parecidas', pend ? `${pend} ${pend === 1 ? 'precisa' : 'precisam'} da sua decisão` : 'tudo decidido') + sims.map(simCard).join('') : ''}${sec('Músicas novas', 'entram com código novo', novas, card)}${sec('Já existem', 'entram só as versões novas', extras, card)}${sec('Nada de novo', 'ficam de fora', nada, card)}${p.items.length ? '' : '<div class="hint" style="font-size:14px">Este arquivo não tem músicas.</div>'}</div>
+    ${shFoot(`<div class="fx1" style="align-self:center;line-height:1.3"><b style="font-size:14px">${pend ? 'Falta decidir' : parts.length ? 'Vão entrar' : 'Nada marcado'}</b><div class="muted" style="font-size:12px">${pend ? `${pend} ${pend === 1 ? 'música parecida' : 'músicas parecidas'}` : parts.length ? parts.join(' + ') : 'Marque ao menos uma música'}</div></div>` + btn('Cancelar', 'closeSheet', { cls: 'lg', style: 'flex:none' }) + btn('Importar', 'impShApply', { cls: 'primary lg', dis: !can, style: 'min-width:112px' }))}`
   };
 };
 /* relatório do que foi cadastrado e do que ficou de fora */
 SHEETS.impLog = t => {
   const l = t.log, nv = l.extras.reduce((a, x) => a + x.codes.length, 0);
   const grp = (title, sub, items, f) => `<div class="gh"><b>${title}</b><span>${sub}</span></div>${items.length ? `<div class="group">${items.map(f).join('')}</div>` : '<div class="muted" style="font-size:13px;padding:2px 4px 10px">Nenhuma.</div>'}`;
-  const row = (a, b) => `<div style="padding:9px 4px;border-bottom:1px solid var(--line)"><div class="ell jp" style="font-weight:700;font-size:14px">${a}</div><div class="muted" style="font-size:12px;margin-top:1px;word-break:break-word">${b}</div></div>`;
+  const tag = d => d ? '<div style="margin-top:5px"><span style="display:inline-block;padding:3px 8px;border-radius:8px;background:var(--surface2);color:var(--accent);font-size:11px;font-weight:800">Decisão sua</span></div>' : '';
+  const row = (a, b, d) => `<div style="padding:9px 4px;border-bottom:1px solid var(--line)"><div class="ell jp" style="font-weight:700;font-size:14px">${a}</div><div class="muted" style="font-size:12px;margin-top:1px;word-break:break-word">${b}</div>${tag(d)}</div>`;
   return {
     label: 'Resultado da importação', big: true,
     html: shHead('Importação concluída', esc(l.file || '')) + `<div class="sh-b" style="padding-top:6px">
       <div class="card" style="margin:0 0 10px;background:var(--surface2);padding:12px;font-weight:700">${l.novas.length} ${l.novas.length === 1 ? 'música cadastrada' : 'músicas cadastradas'} · ${nv} ${nv === 1 ? 'versão adicionada' : 'versões adicionadas'} a músicas que já existiam · ${l.ignoradas.length} ${l.ignoradas.length === 1 ? 'item ignorado' : 'itens ignorados'}${l.erro ? `<div style="color:var(--danger);margin-top:6px">Erro: ${esc(l.erro)}</div>` : ''}</div>
-      ${grp('Cadastradas', 'músicas novas, com o código daqui', l.novas, n => row(esc(n.title), `<span class="mono">${esc(n.id)}</span>${n.singer ? ' · ' + esc(n.singer) : ''} · versões: ${n.codes.map(c => `<span class="mono">${esc(c)}</span>`).join(', ')}`))}
-      ${grp('Versões novas em músicas que já existiam', 'o vídeo que faltava', l.extras, n => row(esc(n.title), `<span class="mono">${esc(n.id)}</span> · ${n.codes.length === 1 ? 'versão nova' : 'versões novas'}: ${n.codes.map(c => `<span class="mono">${esc(c)}</span>`).join(', ')}`))}
-      ${grp('Ignoradas', 'e o motivo', l.ignoradas, n => row(esc(n.title) + (n.singer ? ' · ' + esc(n.singer) : ''), esc(n.why) + (n.vid ? ' · ' + esc(n.vid) : '')))}
+      ${grp('Cadastradas', 'músicas novas, com o código daqui', l.novas, n => row(esc(n.title), `<span class="mono">${esc(n.id)}</span>${n.singer ? ' · ' + esc(n.singer) : ''} · versões: ${n.codes.map(c => `<span class="mono">${esc(c)}</span>`).join(', ')}`, n.dec))}
+      ${grp('Versões novas em músicas que já existiam', 'o vídeo que faltava', l.extras, n => { const cs = n.codes.map(c => `<span class="mono">${esc(c)}</span>`).join(', '); return n.dec ? row(esc(n.fromTitle) + (n.fromSinger ? ' · ' + esc(n.fromSinger) : ''), `Entrou como versão nova de <span class="mono">${esc(n.id)}</span> ${esc(n.title)}: ${cs}`, true) : row(esc(n.title), `<span class="mono">${esc(n.id)}</span> · ${n.codes.length === 1 ? 'versão nova' : 'versões novas'}: ${cs}`); })}
+      ${grp('Ignoradas', 'e o motivo', l.ignoradas, n => row(esc(n.title) + (n.singer ? ' · ' + esc(n.singer) : ''), esc(n.why) + (n.vid ? ' · ' + esc(n.vid) : ''), n.dec))}
     </div>${shFoot(btn('Copiar relatório', 'impLogCopy', { cls: 'lg' }) + btn('Fechar', 'closeSheet', { cls: 'primary grow lg' }))}`
   };
 };
@@ -2582,6 +2709,15 @@ function addVerToQueue(code) {
   render();
 }
 
+// envia (compartilhar do Android) ou salva em Downloads o catálogo escolhido
+async function expOut(t, save) {
+  const { ids, codes } = shareSelection(t.sel);
+  if (!codes.length) return;
+  const r = save ? saveCatalog(ids, codes) : await shareCatalog(ids, codes);
+  if (r === 'cancel') return;
+  const keep = Object.assign({}, t.sel);
+  ui.sheets = []; openSheet({ type: 'expDone', sel: keep, nS: ids.length, nV: codes.length, name: shareExportName(), how: r });
+}
 const ACT = {
   tab(d) {
     const same = ui.tab === d.t;
@@ -2710,11 +2846,27 @@ const ACT = {
     const r = await shareBackup();
     if (r === 'shared') toast('Backup compartilhado.'); else if (r === 'downloaded') toast('Backup salvo na pasta Downloads.'); render();
   },
-  async shareCat() {
-    const r = await shareCatalog();
-    if (r === 'shared') toast('Catálogo compartilhado.'); else if (r === 'downloaded') toast('Catálogo salvo na pasta Downloads.'); render();
+  /* exportar para outra pessoa: escolher músicas e versões */
+  expStart(d) {
+    const sel = {};
+    if (d.v === 'all') { D.versions.forEach(v => { sel[v.code] = true; }); openSheet({ type: 'expConf', sel }); }
+    else openSheet({ type: 'expSel', sel, q: '', f: 'all', open: null });
   },
-  impShAll(d) { const t = sh(); const on = d.v === '1'; t.plan.items.forEach(i => { i.checked = on && i.add.length > 0; }); render(); },
+  expTog(d) { const t = sh(); const s = X.song[d.id]; const e = expState(t, s); (X.vers[s.id] || []).forEach(v => { if (e.st === 2) delete t.sel[v.code]; else t.sel[v.code] = true; }); render(); },
+  expVer(d) { const t = sh(); if (t.sel[d.code]) delete t.sel[d.code]; else t.sel[d.code] = true; render(); },
+  expOpen(d) { const t = sh(); t.open = t.open === d.id ? null : d.id; render(); },
+  expF(d) { sh().f = d.v; render(); },
+  expAll() { const t = sh(); expList(t).forEach(s => (X.vers[s.id] || []).forEach(v => { t.sel[v.code] = true; })); render(); },
+  expClr() { sh().sel = {}; render(); },
+  expGo() { const t = sh(); openSheet({ type: 'expConf', sel: Object.assign({}, t.sel) }); },
+  expBack() { const t = sh(); const prev = ui.sheets[ui.sheets.length - 2]; if (prev && prev.type === 'expSel') { prev.sel = Object.assign({}, t.sel); ui.sheets.pop(); render(); } else { ui.sheets = []; openSheet({ type: 'expSel', sel: Object.assign({}, t.sel), q: '', f: 'all', open: null }); } },
+  expAgain() { const t = sh(); ui.sheets = []; openSheet({ type: 'expSel', sel: Object.assign({}, t.sel), q: '', f: 'all', open: null }); },
+  async expSend() { await expOut(sh(), false); },
+  async expSave() { await expOut(sh(), true); },
+  impShAll(d) { const t = sh(); const on = d.v === '1'; t.plan.items.forEach(i => { if (i.sim) { if (!on) i.sim.dec = null; return; } i.checked = on && i.add.length > 0; }); render(); },
+  impShTog(d) { const n = sh().plan.items.find(x => x.ref === d.id); if (n) n.checked = !n.checked; render(); },
+  impOpen(d) { const t = sh(); t.open = t.open === d.id ? null : d.id; render(); },
+  impSim(d) { const n = sh().plan.items.find(x => x.ref === d.id); if (n && n.sim) n.sim.dec = d.v; render(); },
   impShApply() {
     const t = sh(); const log = applyShare(t.plan); ui.sheets = []; ui.songSel = null; ui.lastImport = log;
     openSheet({ type: 'impLog', log });
@@ -2788,7 +2940,7 @@ const ACT = {
   rmTag(d) { ui.draft.tags.splice(+d.i, 1); render(); },
   sugFill(d) {
     const x = ui.draft;
-    if (d.f === 'tag') { if (!x.tags.includes(d.v)) x.tags.push(d.v); render(); return; }
+    if (d.f === 'tag') { if (!x.tags.includes(d.v)) x.tags.push(d.v); x.tagIn = ''; render(); const n = $('#f-tagIn'); if (n) n.focus(); return; }
     x[d.f] = d.v; render();
   },
   covPick(d) { ui.draft.coverOf = d.id; render(); },
@@ -2889,6 +3041,7 @@ document.addEventListener('input', e => {
   if (t.id === 'q') { ui.query = t.value; ui.limit = 150; updateList(); const c = $('.qclear'); if (c) c.hidden = !t.value; return; }
   if (t.id === 'jumpIn') { const s = sh(); s.v = t.value; const m = jumpMatch(t.value); $('#jumpres').innerHTML = jumpResHtml(m); const b = $('.sh-f .btn.primary'); if (b) b.disabled = !m; return; }
   if (t.id === 'onq') { sh().q = t.value; return; }
+  if (t.id === 'exq') { const s = sh(); s.q = t.value; const l = $('#exlist'); if (l) l.innerHTML = expRows(s); return; }
   if (t.id === 'mpq') { const s = sh(); s.q = t.value; const l = $('#mplist'); if (l) l.innerHTML = mergeRows(s); return; }
   if (t.id === 'nlname') { sh().name = t.value; return; }
   if (t.id === 'lpq') { const s = sh(); s.q = t.value; const l = D.lists.find(x => x.id === s.id); const q = norm(s.q); const have = new Set(l.items.map(c => (X.ver[c] || {}).song)); $('#lplist').innerHTML = lpRows(sortSongs(D.songs.filter(x => !q || (X.text[x.id] || '').includes(q)), 'code', 'asc').slice(0, 120), have, s); return; }
@@ -2932,7 +3085,6 @@ document.addEventListener('change', e => {
     case 'srcOn': { const off = D.settings.basesOff || (D.settings.basesOff = []); const i = off.indexOf(t.dataset.id); if (t.checked && i >= 0) off.splice(i, 1); if (!t.checked && i < 0) off.push(t.dataset.id); save('settings'); render(); break; }
     case 'onBase': { const i = s.sel.indexOf(t.dataset.id); if (t.checked && i < 0) s.sel.push(t.dataset.id); if (!t.checked && i >= 0) s.sel.splice(i, 1); render(); break; }
     case 'onChk': s.chk[t.dataset.k] = t.checked; render(); break;
-    case 'impSh': { const n = s.plan.items.find(x => x.ref === t.dataset.id); if (n) n.checked = t.checked; render(); break; }
     case 'impNew': { const n = s.plan.novas.find(x => x.id === t.dataset.id); if (n) n.checked = t.checked; render(); break; }
     case 'lpChk': if (t.checked) s.sel[t.dataset.id] = 1; else delete s.sel[t.dataset.id]; render(); break;
     case 'useCur': s.cur = t.checked; break;
