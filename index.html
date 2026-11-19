@@ -158,7 +158,9 @@ details.box summary::-webkit-details-marker{display:none}
 /* barra mínima, nav, trilho */
 .minibar{margin:0 8px 8px;min-height:64px;flex:none;border-radius:18px;background:var(--surface2);border:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:0 10px}
 .minibar.mbe{background:transparent;border:1.5px dashed var(--line);color:var(--muted)}
-.minibar .tt{flex:1;min-width:0;text-align:left;border:0;background:none;padding:0;display:flex;align-items:center;gap:10px;height:64px;color:inherit}
+.minibar .tt{flex:1;min-width:0;text-align:left;border:0;background:none;padding:0 8px 0 0;display:flex;align-items:center;gap:10px;height:64px;color:inherit}
+.minibar.mnew{gap:4px;padding:0 8px 0 14px}
+.minibar.mnew .qcount,.minibar.mnew .ib{box-sizing:border-box;width:40px;height:40px;border-radius:12px}
 .qcount{border:1px solid var(--line);background:var(--surface);width:44px;height:44px;flex:none;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;font:700 11px 'JetBrains Mono',monospace}
 .nav{flex:none;height:64px;display:flex;border-top:1px solid var(--line);background:var(--surface);padding-bottom:6px}
 .nav button{flex:1;border:0;background:none;color:var(--muted);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font:700 12px 'Manrope',sans-serif}
@@ -285,7 +287,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.24.6",APP_BUILD=1795120585,MGR=false;
+const APP_VERSION="1.25.0",APP_BUILD=1795124180,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -1584,11 +1586,12 @@ function minibar() {
   const cur = qCurrent();
   if (!cur) return `<div class="minibar mbe"><button class="tt" data-act="openQueue"><b style="font-size:14px">Nada tocando · fila vazia</b></button><button class="qcount" data-act="openQueue" aria-label="Abrir a fila">${ic('queue', 18)}0</button></div>`;
   const s = songOf(cur); const n = D.queue.length - 1;
-  return `<div class="minibar">
-    <button class="tt" data-act="openQueue" aria-label="Abrir a fila">${thumbHtml(s, cur, 44, 20, 10)}<span class="fx1"><span class="ell jp" style="display:block;font-size:14px;font-weight:700">${esc(s.title)}</span><span class="ell mono muted" style="display:block;font-size:12px">${esc((s.singers || [])[0] || '')} · ${cur.code}</span></span></button>
+  return `<div class="minibar mnew">
+    <button class="tt" data-act="openQueue" aria-label="Abrir a fila"><span class="fx1"><span class="ell jp" style="display:block;font-size:14px;font-weight:700">${esc(s.title)}</span><span class="ell mono muted" style="display:block;font-size:12px">${esc((s.singers || [])[0] || '')} · ${cur.code}</span></span></button>
     <button class="qcount" data-act="openQueue" aria-label="Abrir a fila: ${n} músicas na espera">${ic('queue', 18)}+${n}</button>
     <button class="ib round ok" data-act="sung" aria-label="Cantei: marcar e ir para a próxima">${ic('check', 22, 2.6)}</button>
     <button class="ib round bd" data-act="skip" aria-label="Não cantei: ir para a próxima">${ic('close', 22, 2.6)}</button>
+    <button class="ib bd" data-act="openYT" data-code="${esc(cur.code)}" aria-label="Abrir no YouTube" style="color:var(--accent)"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${ICON.play}</svg></button>
   </div>`;
 }
 function shellPhone() {
