@@ -285,7 +285,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.26.0",APP_BUILD=1795441602,MGR=true;
+const APP_VERSION="1.26.1",APP_BUILD=1795452399,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -746,7 +746,8 @@ const TV = {
     let s;
     try { s = await TV.session(); } catch (e) { if (e.message === 'notoken' || e.status === 400 || e.status === 401) { D.settings.tvScreen = null; D.settings.tvPaired = false; save('settings'); throw new Error('nopair'); } throw e; }
     await TV.post('/api/lounge/bc/bind', { RID: '2', VER: '8', CVER: '1', device: 'REMOTE_CONTROL', app: 'youtube-desktop', name: 'KaraTube', id: TV.devId(), loungeIdToken: s.tk, SID: s.sid, gsessionid: s.g, AID: '1', zx: Math.random().toString(36).slice(2, 8) },
-      { count: '1', ofs: '0', req0__sc: 'setPlaylist', req0_videoId: vid, req0_videoIds: vid, req0_currentIndex: '0', req0_currentTime: '0', req0_audioOnly: 'false' });
+      { count: '2', ofs: '0', req0__sc: 'clearPlaylist', // todo envio começa uma lista nova só com este vídeo
+        req1__sc: 'setPlaylist', req1_videoId: vid, req1_videoIds: vid, req1_currentIndex: '0', req1_currentTime: '0', req1_audioOnly: 'false' });
     return true;
   }
 };
