@@ -285,7 +285,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.26.1",APP_BUILD=1795452399,MGR=true;
+const APP_VERSION="1.26.2",APP_BUILD=1795462390,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -772,7 +772,7 @@ async function checkUpdate(quiet) {
   } catch (e) { if (!quiet) toast('Não consegui verificar (sem internet?).'); }
 }
 async function applyUpdate() {
-  try { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); const rs = await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(r => r.unregister())); } catch (e) { }
+  try { const ks = await caches.keys(); await Promise.all(ks.filter(k => k !== 'karatube-dict').map(k => caches.delete(k))); const rs = await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(r => r.unregister())); } catch (e) { }
   try { await Promise.all(['./', 'index.html', 'sw.js', 'manifest.webmanifest'].map(u => fetch(u, { cache: 'reload' }))); } catch (e) { }
   if (typeof flush === 'function') { try { await flush(); } catch (e) { } }
   location.reload();
@@ -975,7 +975,15 @@ function loadScript(src) {
 }
 const KURO_DICTS = ['dict/', 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/', 'https://unpkg.com/kuromoji@0.1.2/dict/'];
 const KURO_FILES = ['base', 'cc', 'check', 'tid', 'tid_map', 'tid_pos', 'unk', 'unk_char', 'unk_compat', 'unk_invoke', 'unk_map', 'unk_pos'].map(n => n + '.dat.gz');
+async function dictCached(base) { // todos os arquivos já estão no cache do dicionário?
+  try {
+    if (!window.caches) return false; const c = await caches.open('karatube-dict');
+    for (const f of KURO_FILES) if (!(await c.match(new URL(base + f, location.href).href))) return false;
+    return true;
+  } catch (e) { return false; }
+}
 async function prefetchDict(base, onProg) {
+  if (!/^https?:/.test(base) && await dictCached(base)) return; // já baixado: não lê de novo
   let done = 0, bytes = 0;
   for (const f of KURO_FILES) {
     let ok = false, lastE;
@@ -1005,7 +1013,9 @@ async function toRomaji(text, onStage) {
           stage('Preparando o dicionário…');
           const k = new K();
           await withTimeout(k.init(new window.KuromojiAnalyzer({ dictPath: KURO_DICTS[i] })), 120000, 'O dicionário demorou demais para baixar');
-          KURO.inst = k; KURO.ready = true; return;
+          KURO.inst = k; KURO.ready = true;
+          try { if (navigator.storage && navigator.storage.persist && !persistent) navigator.storage.persist().then(p => { persistent = p; }); } catch (e) { } // protege o dicionário e os dados contra limpeza automática
+          return;
         } catch (e) { lastErr = e; }
       }
       throw lastErr || new Error('Falha ao carregar o dicionário');
