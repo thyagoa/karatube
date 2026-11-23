@@ -83,6 +83,7 @@ export class Sala {
       case 'req': if (a.role !== 'guest') return this.deny(ws); return this.req(ws, a, m);
       case 'rdone': if (!CAN.mod(a.role)) return this.deny(ws); return this.rdone(m);
       case 'rdis': return this.rdis(ws, a, m);
+      case 'rrej': if (!CAN.mod(a.role)) return this.deny(ws); return this.rrej(m);
       case 'cfg': {
         if (!CAN.owner(a.role)) return this.deny(ws);
         if ('search' in m) this.meta.search = !!m.search;
@@ -126,10 +127,10 @@ export class Sala {
   reqView(a) {
     const inCat = r => !!(r.code && this.lookup(r.code));
     if (a.role === 'guest') {
-      const mine = this.reqs.filter(r => r.by.some(b => b.dev === a.dev)).map(r => { const b = r.by.find(x => x.dev === a.dev); return { r: r.r, vid: r.vid, t: r.t, ch: r.ch, st: r.st, code: r.code || '', cat: inCat(r), ts: b.ts, n: r.by.length - 1 }; });
+      const mine = this.reqs.filter(r => r.by.some(b => b.dev === a.dev)).map(r => { const b = r.by.find(x => x.dev === a.dev); return { r: r.r, vid: r.vid, t: r.t, ch: r.ch, st: r.st, code: r.code || '', cat: inCat(r), ts: b.ts, n: r.by.length - 1, why: r.st === 'x' ? (r.why || '') : '' }; });
       return { t: 'reqs', reqs: mine };
     }
-    return { t: 'reqs', reqs: this.reqs.map(r => ({ r: r.r, vid: r.vid, t: r.t, ch: r.ch, st: r.st, code: r.code || '', cat: inCat(r), ts: r.ts, by: r.by.map(b => ({ name: b.name, note: b.note, ts: b.ts })) })) };
+    return { t: 'reqs', reqs: this.reqs.filter(r => r.st !== 'x').map(r => ({ r: r.r, vid: r.vid, t: r.t, ch: r.ch, st: r.st, code: r.code || '', cat: inCat(r), ts: r.ts, by: r.by.map(b => ({ name: b.name, note: b.note, ts: b.ts })) })) };
   }
   async persistR() { await this.state.storage.put('reqs', this.reqs); this.all().forEach(ws => { const a = this.att(ws); if (a.role) this.send(ws, this.reqView(a)); }); }
   async req(ws, a, m) {
@@ -138,7 +139,7 @@ export class Sala {
     if (!/^[A-Za-z0-9_-]{11}$/.test(vid)) return rep(false, 'invalido');
     const inx = this.ix.find(x => x.v === vid);
     if (inx) return rep(false, 'nocatalogo', { code: inx.c });
-    let r = this.reqs.find(x => x.vid === vid);
+    let r = this.reqs.find(x => x.vid === vid && x.st !== 'x');   // pedido recusado não conta: quem pedir de novo abre um pedido novo
     if (r && r.by.some(b => b.dev === a.dev)) return rep(false, 'repetido');
     if (this.reqs.filter(x => x.st === 'p' && x.by.some(b => b.dev === a.dev)).length >= 5) return rep(false, 'limite');
     if (!r && this.reqs.length >= 200) return rep(false, 'cheio');
@@ -148,13 +149,17 @@ export class Sala {
     rep(true, 'enviado'); await this.persistR();
   }
   async rdone(m) {       // dono/moderador viu o vídeo no catálogo: marca como cadastrado
-    const r = this.reqs.find(x => x.r === m.r); if (!r || (r.st === 'd' && r.code === cut(m.code, 10))) return;
+    const r = this.reqs.find(x => x.r === m.r); if (!r || r.st === 'x' || (r.st === 'd' && r.code === cut(m.code, 10))) return;
     r.st = 'd'; r.code = okMusic(String(m.code)) ? String(m.code) : ''; await this.persistR();
+  }
+  async rrej(m) {        // dono/moderador recusa um pedido aguardando; o motivo (pode ser vazio) chega a quem pediu
+    const r = this.reqs.find(x => x.r === m.r); if (!r || r.st !== 'p') return;
+    r.st = 'x'; r.why = cut(m.why, 120).trim(); r.xts = Date.now(); await this.persistR();
   }
   async rdis(ws, a, m) {  // dispensar: dono/moderador apaga para todos; convidado só o dele, e só depois de cadastrado
     const i = this.reqs.findIndex(x => x.r === m.r); if (i < 0) return;
     const r = this.reqs[i];
-    if (a.role === 'guest') { if (r.st !== 'd') return this.deny(ws); r.by = r.by.filter(b => b.dev !== a.dev); if (!r.by.length) this.reqs.splice(i, 1); }
+    if (a.role === 'guest') { if (r.st === 'p') return this.deny(ws); r.by = r.by.filter(b => b.dev !== a.dev); if (!r.by.length) this.reqs.splice(i, 1); }
     else this.reqs.splice(i, 1);
     await this.persistR();
   }

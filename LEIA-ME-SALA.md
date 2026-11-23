@@ -70,6 +70,7 @@ Ao sair da festa, o moderador volta à fila que tinha antes de entrar. O dono, a
 - Quem pede o mesmo vídeo entra no **mesmo pedido** (o dono vê uma linha só, com "2 pedidos" e os nomes). Cada convidado vê o próprio pedido e quantos outros pediram o mesmo.
 - Dono e moderadores veem o cartão **Pedidos de cadastro** no topo de Cadastrar (celular e tablet). **Cadastrar** preenche o campo URL do YouTube; quando o vídeo aparece no catálogo, a linha mostra "já cadastrado" com o código e o botão vira **Dispensar** (apaga para todos).
 - O convidado vê Aguardando cadastro → Cadastrado. Se o catálogo dele está desatualizado aparece **Atualizar**; depois **Procurar** (busca a música) e o X para dispensar só o dele (só depois de cadastrado).
+- **Recusar (v1.26.0):** num pedido aguardando, dono e moderador têm o botão **Recusar**, que abre uma folha com o motivo (opcional, até 120 caracteres). Quem pediu vê "Pedido recusado" com o motivo (ou "Sem motivo informado") e dispensa pelo X; o pedido some da caixa do dono/moderador na hora. Pedir de novo o mesmo vídeo depois de recusado abre um pedido novo. Exige atualizar o Worker.
 - Um vídeo que já está no catálogo da festa não vira pedido (o convidado recebe o código). Limite: 5 pedidos aguardando por pessoa, 200 no total. Os pedidos ficam guardados no Worker e somem com a festa.
 - **Atualização do Worker:** copie o novo `worker-sala.js` e rode de novo o deploy (mesmo passo da seção 2). Sem isso, o botão aparece mas os pedidos não funcionam.
 
