@@ -285,7 +285,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.26.3",APP_BUILD=1795556615,MGR=true;
+const APP_VERSION="1.27.0",APP_BUILD=1795556919,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -730,25 +730,54 @@ const TV = {
     }
     return out;
   },
-  async session() {
+  async session(devId) {
     const tk = await TV.refreshToken();
-    const t = await TV.post('/api/lounge/bc/bind', { RID: '1', VER: '8', CVER: '1', device: 'REMOTE_CONTROL', app: 'youtube-desktop', name: 'KaraTube', id: TV.devId(), loungeIdToken: tk, zx: Math.random().toString(36).slice(2, 8) }, { count: '0' });
+    const t = await TV.post('/api/lounge/bc/bind', { RID: '1', VER: '8', CVER: '1', device: 'REMOTE_CONTROL', app: 'youtube-desktop', name: 'KaraTube', id: devId || TV.devId(), loungeIdToken: tk, zx: Math.random().toString(36).slice(2, 8) }, { count: '0' });
     let sid = '', g = '';
     TV.parse(t).forEach(e => { if (e && e[0] === 'c') sid = e[1]; if (e && e[0] === 'S') g = e[1]; });
     const hdr = t.match(/"c","([^"]+)"/); if (!sid && hdr) sid = hdr[1];
     const gm = t.match(/"S","([^"]+)"/); if (!g && gm) g = gm[1];
     if (!sid || !g) throw new Error('nosession');
-    return { sid, g, tk };
+    return { sid, g, tk, raw: t };
   },
   async send(vid) {
     if (!D.settings.tvScreen) throw new Error('nopair');
     if (!TV.base()) throw new Error('noproxy');
     let s;
     try { s = await TV.session(); } catch (e) { if (e.message === 'notoken' || e.status === 400 || e.status === 401) { D.settings.tvScreen = null; D.settings.tvPaired = false; save('settings'); throw new Error('nopair'); } throw e; }
-    await TV.post('/api/lounge/bc/bind', { RID: '2', VER: '8', CVER: '1', device: 'REMOTE_CONTROL', app: 'youtube-desktop', name: 'KaraTube', id: TV.devId(), loungeIdToken: s.tk, SID: s.sid, gsessionid: s.g, AID: '1', zx: Math.random().toString(36).slice(2, 8) },
+    const resp = await TV.post('/api/lounge/bc/bind', { RID: '2', VER: '8', CVER: '1', device: 'REMOTE_CONTROL', app: 'youtube-desktop', name: 'KaraTube', id: TV.devId(), loungeIdToken: s.tk, SID: s.sid, gsessionid: s.g, AID: '1', zx: Math.random().toString(36).slice(2, 8) },
       { count: '3', ofs: '0', req0__sc: 'stopVideo', req1__sc: 'clearPlaylist', // todo envio para o que toca, limpa a lista e começa uma nova só com este vídeo
         req2__sc: 'setPlaylist', req2_videoId: vid, req2_videoIds: vid, req2_currentIndex: '0', req2_currentTime: '0', req2_audioOnly: 'false' });
-    return true;
+    TV.lastResp = resp; return true;
+  },
+  // diagnóstico: escuta os eventos da TV por ~20 s (opcionalmente enviando um vídeo no meio) e conta tudo em log()
+  async diag(vid, log) {
+    const t0 = Date.now(); const L = m => log(((Date.now() - t0) / 1000).toFixed(1) + 's  ' + m);
+    const cut = (x, n) => { x = String(x).replace(/\s+/g, ' '); return x.length > n ? x.slice(0, n) + '…(+' + (x.length - n) + ')' : x; };
+    if (!D.settings.tvScreen) throw new Error('nopair'); if (!TV.base()) throw new Error('noproxy');
+    L('Versão do app ' + APP_VERSION + '. Conectando à TV ' + (D.settings.tvScreen.name || '') + '…');
+    const lid = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)) ;
+    const s = await TV.session(lid);
+    L('Sessão de escuta aberta. Resposta inicial: ' + cut(s.raw, 1500));
+    const ac = new AbortController(); let got = 0; const stop = setTimeout(() => ac.abort(), 20000);
+    const u = TV.base() + '/api/lounge/bc/bind?' + new URLSearchParams({ VER: '8', CVER: '1', RID: 'rpc', SID: s.sid, gsessionid: s.g, AID: '0', CI: '0', TYPE: 'xmlhttp', device: 'REMOTE_CONTROL', app: 'youtube-desktop', name: 'KaraTube', id: lid, loungeIdToken: s.tk, zx: Math.random().toString(36).slice(2, 8) });
+    const listen = (async () => {
+      try {
+        const r = await fetch(u, { method: 'GET', signal: ac.signal }); L('Escuta: HTTP ' + r.status);
+        if (!r.body || !r.body.getReader) { L('Escuta: o navegador não entrega o fluxo aos poucos.'); L(cut(await r.text(), 3000)); return; }
+        const rd = r.body.getReader(), dec = new TextDecoder();
+        for (;;) { const { value, done } = await rd.read(); if (done) break; got++; L('EVENTO ' + cut(dec.decode(value, { stream: true }), 3000)); }
+        L('Escuta encerrada pela TV.');
+      } catch (e) { if (e.name !== 'AbortError') L('Escuta falhou: ' + e.message); }
+    })();
+    if (vid) {
+      await new Promise(r => setTimeout(r, 3000));
+      L('Enviando o vídeo ' + vid + ' (stopVideo + clearPlaylist + setPlaylist)…');
+      try { await TV.send(vid); L('Envio concluído. Resposta da TV: ' + cut(TV.lastResp, 800)); } catch (e) { L('Envio falhou: ' + e.message); }
+    }
+    await listen.catch(() => { }); clearTimeout(stop);
+    if (!got) L('Nenhum evento chegou na escuta. Se o proxy for antigo, atualize o worker.js do proxy da TV (ver LEIA-ME-TV).');
+    L('Fim do teste.');
   }
 };
 const TV_ERR = {
@@ -2194,7 +2223,10 @@ function settingsCards() {
     tv: `<div class="card"><div class="fx ac g8"><h3 class="fx1">Enviar para a TV</h3><span class="fx ac g6 muted" style="font-size:12px;font-weight:700"><span class="dot ${D.settings.tvScreen ? 'ok' : 'unverified'}"></span>${D.settings.tvScreen ? 'Pareada: ' + esc(D.settings.tvScreen.name) : 'Não pareada'}</span></div>
       <p>Recurso não oficial do YouTube. Precisa de um proxy seu (veja o passo a passo no LEIA-ME) para o navegador conseguir falar com o YouTube.</p>
       <p style="margin-top:10px;font-weight:700">Endereço do proxy</p><div class="field" style="margin-top:4px"><input id="tvproxy" data-change="tvProxy" value="${esc(D.settings.tvProxy || '')}" placeholder="https://karatube.seunome.workers.dev" autocapitalize="off" spellcheck="false"></div>
-      ${D.settings.tvScreen ? `<div class="fx g8" style="margin-top:10px">${btn('Desparear', 'tvUnpair', { cls: 'fx1' })}</div>` : `<p style="margin-top:10px">Na TV, abra o YouTube › Configurações › Vincular com código da TV e digite o código de 12 dígitos aqui.</p>
+      ${D.settings.tvScreen ? `<div class="fx g8" style="margin-top:10px">${btn('Desparear', 'tvUnpair', { cls: 'fx1' })}</div>
+      <p style="margin-top:14px;font-weight:700">Diagnóstico da TV</p><p>Escuta o que a TV informa por 20 segundos. O segundo botão também envia o 1º vídeo da fila no meio do teste. Depois, copie o resultado e cole na conversa com o Claude.</p>
+      <div class="fx g8" style="margin-top:6px">${btn('Só escutar', 'tvDiag', { cls: 'fx1', dis: ui.tvBusy })}${btn('Escutar e enviar o 1º da fila', 'tvDiag', { cls: 'fx1', d: { send: '1' }, dis: ui.tvBusy })}</div>
+      ${ui.tvLog ? `<pre id="tvlog" style="margin-top:8px;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-all;font:11px/1.4 'JetBrains Mono',monospace;background:var(--surface2,rgba(127,127,127,.12));padding:8px;border-radius:8px">${esc(ui.tvLog)}</pre><div class="fx g8" style="margin-top:6px">${btn('Copiar resultado', 'tvLogCopy', { cls: 'fx1' })}</div>` : ''}` : `<p style="margin-top:10px">Na TV, abra o YouTube › Configurações › Vincular com código da TV e digite o código de 12 dígitos aqui.</p>
       <div class="fx g8" style="margin-top:6px"><div class="field fx1"><input id="tvcode" placeholder="000 000 000 000" inputmode="numeric" style="font-family:'JetBrains Mono',monospace;font-size:16px"></div>${btn('Parear', 'tvPair', { style: 'height:48px' })}</div>`}</div>`,
     sala: SALA.card(),
     sync: `<div class="card"><div class="fx ac g8"><h3 class="fx1">Sincronizar com o GitHub</h3><span class="fx ac g6 muted" style="font-size:12px;font-weight:700"><span class="dot ${ghOn() ? (D.settings.gh.err ? 'broken' : 'ok') : 'unverified'}"></span>${ghOn() ? (D.settings.gh.err ? 'Com erro' : 'Ligada') : 'Desligada'}</span></div>
@@ -2845,6 +2877,15 @@ const ACT = {
   ghOff() { D.settings.gh = null; save('settings'); ui.syncMsg = ''; render(); toast('Sincronização desligada. Seus dados continuam aqui.'); },
   chkUpd() { checkUpdate(false); },
   doUpd() { applyUpdate(); },
+  async tvDiag(d) {
+    if (ui.tvBusy) return; const c = d && d.send ? qCurrent() : null; let vid = null;
+    if (d && d.send) { vid = c && parseVid(c.url); if (!vid) { toast('A fila está vazia ou a música não tem link válido.'); return; } }
+    ui.tvBusy = true; ui.tvLog = ''; render();
+    const log = m => { ui.tvLog += (ui.tvLog ? '\n' : '') + m; const e = $('#tvlog'); if (e) { e.textContent = ui.tvLog; e.scrollTop = e.scrollHeight; } };
+    try { await TV.diag(vid, log); } catch (e) { log('Erro: ' + (e && e.message ? tvErrMsg(e) : e)); }
+    ui.tvBusy = false; render();
+  },
+  async tvLogCopy() { try { await navigator.clipboard.writeText(ui.tvLog || ''); toast('Resultado copiado.'); } catch (e) { toast('Não consegui copiar.'); } },
   tvUnpair() { D.settings.tvScreen = null; D.settings.tvPaired = false; save('settings'); render(); },
   newSong() { startNew(); },
   newVersion(d) { ui.sheets = []; startVersion(d.id); },
