@@ -285,7 +285,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.28.0",APP_BUILD=1795565708,MGR=true;
+const APP_VERSION="1.28.1",APP_BUILD=1795566718,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -828,6 +828,7 @@ const TV = {
    Com a opção ligada, o app escuta a TV (mesma escuta do diagnóstico). Quando o vídeo enviado acaba
    (a TV manda um nowPlaying sem videoId, perto do fim da duração), marca "Cantei" e envia o próximo da fila. */
 const AUTO = {
+  locked() { return !!D.settings.autoAdv && AUTO.watching; }, // escutando a TV: o app marca Cantei e passa de música sozinho
   key: 0, ac: null, watching: false, wl: null, vid: '', code: '',
   on() { return !!D.settings.autoAdv && !!D.settings.tvScreen && !!TV.base() && !(typeof SALA !== 'undefined' && SALA.relayTV && SALA.relayTV()); },
   setW(v) { if (AUTO.watching !== v) { AUTO.watching = v; if (typeof render === 'function') render(); } },
@@ -1737,8 +1738,8 @@ function minibar() {
   return `<div class="minibar mnew">
     <button class="tt" data-act="openQueue" aria-label="Abrir a fila"><span class="fx1"><span class="ell jp" style="display:block;font-size:14px;font-weight:700">${esc(s.title)}</span><span class="ell mono muted" style="display:block;font-size:12px">${esc((s.singers || [])[0] || '')} · ${cur.code}</span></span></button>
     <button class="qcount" data-act="openQueue" aria-label="Abrir a fila: ${n} músicas na espera">${ic('queue', 18)}+${n}</button>
-    <button class="ib round ok" data-act="sung" aria-label="Cantei: marcar e ir para a próxima">${ic('check', 22, 2.6)}</button>
-    <button class="ib round bd" data-act="skip" aria-label="Não cantei: ir para a próxima">${ic('close', 22, 2.6)}</button>
+    <button class="ib round ok" data-act="sung" ${AUTO.locked() ? 'disabled style="opacity:.35"' : ''} aria-label="Cantei: marcar e ir para a próxima">${ic('check', 22, 2.6)}</button>
+    <button class="ib round bd" data-act="skip" ${AUTO.locked() ? 'disabled style="opacity:.35"' : ''} aria-label="Não cantei: ir para a próxima">${ic('close', 22, 2.6)}</button>
     <button class="ib bd" data-act="tv" aria-label="Enviar para a TV" style="color:var(--accent)">${ic('tv', 22, 2)}</button>
   </div>`;
 }
@@ -1907,14 +1908,14 @@ function queueFull(noHead) {
   if (!cur) return h + `<div class="empty"><div class="big" style="width:88px;height:88px;border-radius:44px">${ic('queue', 40, 1.6)}</div><h3 style="font-size:18px">Fila vazia</h3><p>Toque no ícone de fila de uma música para adicionar aqui.</p></div>`;
   const s = songOf(cur);
   h += `<div class="scroll pad" data-sk="queue" style="padding-top:8px;padding-bottom:12px">
-   <div class="nowcard"><div class="fx ac"><div class="k fx1">AGORA</div><button class="ib" style="width:36px;height:36px;color:${s.fav ? 'var(--star)' : 'var(--muted)'}" data-act="fav" data-id="${s.id}" aria-label="Favoritar">${s.fav ? starFill(24) : ic('star', 24)}</button></div>
+   <div class="nowcard"${AUTO.locked() ? ' style="border:2px solid var(--accent)"' : ''}><div class="fx ac"><div class="k fx1">AGORA${AUTO.locked() ? ' · AVANÇO AUTOMÁTICO' : ''}</div><button class="ib" style="width:36px;height:36px;color:${s.fav ? 'var(--star)' : 'var(--muted)'}" data-act="fav" data-id="${s.id}" aria-label="Favoritar">${s.fav ? starFill(24) : ic('star', 24)}</button></div>
     <div class="fx g12" style="margin-top:8px">${vthumb(s, cur, 112, 63, 10)}<div class="fx1"><div class="jp" style="font-size:16px;font-weight:700;line-height:1.25">${esc(s.title)}</div><div class="mono muted" style="font-size:12px;margin-top:2px">${esc((s.singers || [])[0] || '')} · ${cur.code}</div>${D.queue[0].by ? `<div class="muted" style="font-size:12px">pedido por ${esc(D.queue[0].by)}</div>` : ''}
       <div class="fx ac g6" style="margin-top:4px"><span class="dot ${cur.link || 'unverified'}"></span><span class="muted" style="font-size:12px">${linkLabel(cur.link)}</span></div></div></div>
     ${[cur.key && 'Tom ' + cur.key, cur.voice].filter(Boolean).length ? `<div class="chips" style="gap:6px;margin-top:8px">${[cur.key && 'Tom ' + cur.key, cur.voice].filter(Boolean).map(m => `<span class="mini">${esc(m)}</span>`).join('')}</div>` : ''}
     <div class="fx g8" style="margin-top:12px">${btn('Abrir no YouTube', 'openYT', { cls: 'primary grow lg', icon: 'play', d: { code: cur.code } })}${ib('tv', 'tv', 'Enviar para a TV', { cls: 'bd', s: 22 })}</div>
-    <div class="fx col ac" style="margin-top:6px"><div class="muted" style="font-size:11px;font-weight:700">Nota (opcional)</div>${ratingBtns()}</div>
+    ${AUTO.locked() ? '<div style="margin-top:10px;font-size:13px;color:var(--accent);font-weight:700">Passa sozinho quando o vídeo acabar. Dê a nota agora, se quiser.</div>' : ''}<div class="fx col ac" style="margin-top:6px"><div class="muted" style="font-size:11px;font-weight:700">Nota (opcional)</div>${ratingBtns()}</div>
     <button class="btn text" style="width:100%;color:${cur.link === 'broken' ? 'var(--danger)' : 'var(--muted)'}" data-act="broken">${ic('warn', 18)}${cur.link === 'broken' ? 'Link marcado como quebrado · desfazer' : 'Link quebrado (continua na fila)'}</button>
-    <div class="fx g8" style="margin-top:6px">${btn('Cantei', 'sung', { cls: 'ok grow lg', icon: 'check' })}${btn('Não cantei', 'skip', { cls: 'grow lg', icon: 'close' })}</div>
+    <div class="fx g8" style="margin-top:6px">${btn('Cantei', 'sung', { cls: 'ok grow lg', icon: 'check', dis: AUTO.locked() })}${btn('Não cantei', 'skip', { cls: 'grow lg', icon: 'close', dis: AUTO.locked() })}</div>
    </div>`;
   const rest = D.queue.slice(1);
   h += `<div class="muted" style="font-size:12px;font-weight:700;margin:16px 0 8px">PRÓXIMAS${rest.length ? '' : ' · nenhuma'}</div>`;
@@ -2943,8 +2944,8 @@ const ACT = {
   openQueue() { if (!ui.wide) openSheet({ type: 'queue' }); },
   closeSheet() { ui.sheets.pop(); render(); },
   backdrop(d, el, e) { if (e.target === el) { ui.sheets.pop(); render(); } },
-  sung() { cantei(); },
-  skip() { pular(); },
+  sung() { if (AUTO.locked()) { toast('Avanço automático ligado: a música passa sozinha.'); return; } cantei(); },
+  skip() { if (AUTO.locked()) { toast('Avanço automático ligado: a música passa sozinha.'); return; } pular(); },
   broken() { const c = qCurrent(); if (!c) return; markBroken(c.code, c.link !== 'broken'); render(); },
   rate(d) { const n = parseInt(d.n, 10); ui.nowRating = ui.nowRating === n ? 0 : n; render(); },
   qUp(d) { if (salaShared()) { SALA.up(d.q); return; } const i = D.queue.findIndex(e => e.q === d.q); if (i > 1) { const [e] = D.queue.splice(i, 1); D.queue.splice(1, 0, e); save('queue'); render(); } },
