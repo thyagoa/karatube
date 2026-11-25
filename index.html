@@ -287,7 +287,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.27.1",APP_BUILD=1795562215,MGR=false;
+const APP_VERSION="1.27.2",APP_BUILD=1795564790,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -758,34 +758,27 @@ const TV = {
     cmds.forEach((c, k) => Object.keys(c).forEach(key => { body['req' + k + (key === '_sc' ? '__sc' : '_' + key)] = c[key]; }));
     return TV.post('/api/lounge/bc/bind', { RID: String(rid), VER: '8', CVER: '1', device: 'REMOTE_CONTROL', app: 'youtube-desktop', name: 'KaraTube', id: s.devId || TV.devId(), loungeIdToken: s.tk, SID: s.sid, gsessionid: s.g, AID: '1', zx: Math.random().toString(36).slice(2, 8) }, body);
   },
-  // a TV guarda o vídeo que estava tocando como o "próximo" da fila; escuta por ~8 s e remove o que não for o vídeo enviado
+  // a TV guarda o vídeo que estava tocando como o "próximo" da fila. Só dá para tirá-lo DEPOIS que o vídeo novo estiver
+  // tocando: removê-lo durante a troca faz a TV fechar a reprodução (volta à escolha de conta). Escuta por até 40 s.
   async clean(s, vid, log) {
     const L = log || (() => { });
-    const ac = new AbortController(); const stop = setTimeout(() => ac.abort(), 8000);
+    const ac = new AbortController(); const stop = setTimeout(() => ac.abort(), 40000);
     const u = TV.base() + '/api/lounge/bc/bind?' + new URLSearchParams({ VER: '8', CVER: '1', RID: 'rpc', SID: s.sid, gsessionid: s.g, AID: '0', CI: '0', TYPE: 'xmlhttp', device: 'REMOTE_CONTROL', app: 'youtube-desktop', name: 'KaraTube', id: TV.devId(), loungeIdToken: s.tk, zx: Math.random().toString(36).slice(2, 8) });
-    let rid = 3, ofs = 2, buf = '', seen = 0, removed = {}, retried = false, curT = '0';
+    let rid = 3, ofs = 2, buf = '', removed = {}, ids = [], playing = false, said = false;
     try {
       const r = await fetch(u, { method: 'GET', signal: ac.signal }); if (!r.ok || !r.body || !r.body.getReader) return;
       const rd = r.body.getReader(), dec = new TextDecoder();
       for (;;) {
         const { value, done } = await rd.read(); if (done) break; buf += dec.decode(value, { stream: true });
-        const re = /"playlistModified",\{[^}]*?"videoIds":"([^"]*)"/g; let m, last = null; re.lastIndex = seen;
-        while ((m = re.exec(buf))) { last = m[1]; seen = re.lastIndex; }
-        const ct = buf.match(/"nowPlaying",\{[^}]*?"currentTime":"([\d.]+)"[^}]*?"videoId":"([^"]+)"/g); if (ct) { const q = ct[ct.length - 1].match(/"currentTime":"([\d.]+)".*"videoId":"([^"]+)"/); if (q && q[2] === vid) curT = q[1]; }
-        if (last == null) continue;
-        const ids = last.split(',').filter(Boolean);
-        if (!ids.includes(vid)) continue;
-        const extra = ids.filter(x => x !== vid);
-        if (!extra.length) { L('Limpeza: a fila da TV tem só o vídeo enviado.'); continue; }
-        const fresh = extra.filter(x => !removed[x]);
-        if (fresh.length) {
-          fresh.forEach(x => { removed[x] = 1; });
-          L('Limpeza: a TV recolocou ' + fresh.join(', ') + ' na fila. Mandando removeVideo…');
-          const resp = await TV.cmd(s, rid++, ofs, fresh.map(x => ({ _sc: 'removeVideo', videoId: x }))); ofs += fresh.length; L('Limpeza: resposta ' + String(resp).replace(/\s+/g, ' ').slice(0, 120));
-        } else if (!retried) { // removeVideo não adiantou: refaz a lista só com o vídeo enviado, na posição em que ele está
-          retried = true; L('Limpeza: o removeVideo não bastou. Refazendo a lista só com o vídeo enviado (a partir de ' + curT + ' s).');
-          const resp = await TV.cmd(s, rid++, ofs, [{ _sc: 'setPlaylist', videoId: vid, videoIds: vid, currentIndex: '0', currentTime: curT, audioOnly: 'false' }]); ofs += 1; L('Limpeza: resposta ' + String(resp).replace(/\s+/g, ' ').slice(0, 120));
-        }
+        const re = /"playlistModified",\{[^}]*?"videoIds":"([^"]*)"/g; let m, last = null; while ((m = re.exec(buf))) last = m[1];
+        if (last != null) ids = last.split(',').filter(Boolean);
+        if (!playing) { const np = buf.match(/"nowPlaying",\{[^}]*\}/g) || []; playing = np.some(x => x.includes('"videoId":"' + vid + '"') && x.includes('"state":"1"')); if (playing) L('Limpeza: o vídeo enviado já está tocando.'); }
+        if (!playing || !ids.includes(vid)) continue;
+        const fresh = ids.filter(x => x !== vid && !removed[x]);
+        if (!fresh.length) { if (!said && ids.length === 1) { said = true; L('Limpeza: a fila da TV tem só o vídeo enviado.'); } continue; }
+        fresh.forEach(x => { removed[x] = 1; });
+        L('Limpeza: a TV recolocou ' + fresh.join(', ') + ' na fila. Mandando removeVideo…');
+        const resp = await TV.cmd(s, rid++, ofs, fresh.map(x => ({ _sc: 'removeVideo', videoId: x }))); ofs += fresh.length; L('Limpeza: resposta ' + String(resp).replace(/\s+/g, ' ').slice(0, 120));
       }
     } catch (e) { if (e.name !== 'AbortError') L('Limpeza falhou: ' + e.message); }
     finally { clearTimeout(stop); try { ac.abort(); } catch (e) { } }
