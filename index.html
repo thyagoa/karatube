@@ -287,7 +287,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.27.3",APP_BUILD=1795565097,MGR=false;
+const APP_VERSION="1.28.0",APP_BUILD=1795565708,MGR=false;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -826,6 +826,70 @@ const TV = {
     L(full && !ended ? 'Fim do teste (10 min sem o aviso de fim de vídeo, ou interrompido).' : 'Fim do teste.');
   }
 };
+/* ===== Avanço automático =====
+   Com a opção ligada, o app escuta a TV (mesma escuta do diagnóstico). Quando o vídeo enviado acaba
+   (a TV manda um nowPlaying sem videoId, perto do fim da duração), marca "Cantei" e envia o próximo da fila. */
+const AUTO = {
+  key: 0, ac: null, watching: false, wl: null, vid: '', code: '',
+  on() { return !!D.settings.autoAdv && !!D.settings.tvScreen && !!TV.base() && !(typeof SALA !== 'undefined' && SALA.relayTV && SALA.relayTV()); },
+  setW(v) { if (AUTO.watching !== v) { AUTO.watching = v; if (typeof render === 'function') render(); } },
+  async wake(on) {
+    try {
+      if (!on) { if (AUTO.wl) { AUTO.wl.release(); AUTO.wl = null; } return; }
+      if (navigator.wakeLock && !AUTO.wl && document.visibilityState === 'visible') { AUTO.wl = await navigator.wakeLock.request('screen'); AUTO.wl.addEventListener('release', () => { AUTO.wl = null; }); }
+    } catch (e) { }
+  },
+  stop() { AUTO.key++; if (AUTO.ac) { try { AUTO.ac.abort(); } catch (e) { } } AUTO.ac = null; AUTO.wake(false); AUTO.setW(false); },
+  attachCurrent() { const c = qCurrent(); if (c && AUTO.on()) AUTO.watch(parseVid(c.url), c.code); else AUTO.stop(); },
+  async watch(vid, code) {
+    AUTO.stop(); if (!vid || !AUTO.on()) return;
+    const my = AUTO.key; const ac = new AbortController(); AUTO.ac = ac; AUTO.vid = vid; AUTO.code = code; AUTO.wake(true); AUTO.setW(true);
+    const alive = () => AUTO.key === my && !ac.signal.aborted;
+    const lid = crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2);
+    const t0 = Date.now(); let s = null, maxId = 0, seenPlay = false, np = { ct: 0, dur: 0, at: 0, st: '' }, fails = 0;
+    while (alive()) {
+      try {
+        if (!s) { s = await TV.session(lid); maxId = 0; }
+        const u = TV.base() + '/api/lounge/bc/bind?' + new URLSearchParams({ VER: '8', CVER: '1', RID: 'rpc', SID: s.sid, gsessionid: s.g, AID: String(maxId), CI: '0', TYPE: 'xmlhttp', device: 'REMOTE_CONTROL', app: 'youtube-desktop', name: 'KaraTube', id: lid, loungeIdToken: s.tk, zx: Math.random().toString(36).slice(2, 8) });
+        const r = await fetch(u, { method: 'GET', signal: ac.signal }); if (!r.ok || !r.body || !r.body.getReader) { s = null; throw new Error('http'); }
+        const rd = r.body.getReader(), dec = new TextDecoder(); let buf = ''; const tS = Date.now();
+        for (;;) {
+          const { value, done } = await rd.read(); if (done) break; if (!alive()) return;
+          buf += dec.decode(value, { stream: true }); let m, end = 0;
+          const ri = /\[(\d+),\["/g; while ((m = ri.exec(buf))) maxId = Math.max(maxId, +m[1]);
+          const re = /"nowPlaying",(\{[^}]*\})|"onStateChange",(\{[^}]*\})/g;
+          while ((m = re.exec(buf))) {
+            end = re.lastIndex; let o; try { o = JSON.parse(m[1] || m[2]); } catch (e) { continue; }
+            if (m[1]) {
+              if (o.videoId === vid) { seenPlay = true; np = { ct: +o.currentTime || 0, dur: +o.duration || 0, at: Date.now(), st: String(o.state) }; }
+              else if (!o.videoId) { if (seenPlay && AUTO.ended(np)) { AUTO.finish(my, code); return; } if (seenPlay) { AUTO.stop(); return; } } // vazio fora de hora: a TV foi fechada/parada
+              else if (seenPlay) { AUTO.stop(); return; } // outro vídeo entrou na TV por fora do app
+            } else if (seenPlay && String(o.state) === '0') { AUTO.finish(my, code); return; }
+          }
+          if (end) buf = buf.slice(end); if (buf.length > 30000) buf = buf.slice(-5000);
+          if (!seenPlay && Date.now() - t0 > 120000) { AUTO.stop(); return; } // nada tocando: não fica escutando à toa
+        }
+        // a conexão fechou: se durou pouco, espera cada vez mais antes de reconectar (não martela o proxy)
+        if (Date.now() - tS < 5000) fails++; else fails = 0;
+        await new Promise(r2 => setTimeout(r2, fails ? Math.min(30000, 1000 * Math.pow(2, Math.min(fails, 5))) : 500));
+        if (!seenPlay && Date.now() - t0 > 120000) { AUTO.stop(); return; }
+      } catch (e) { if (!alive()) return; s = null; fails++; await new Promise(r2 => setTimeout(r2, Math.min(15000, 2000 * fails))); }
+    }
+  },
+  ended(np) { if (!np.dur) return false; const est = np.ct + (np.st === '1' ? (Date.now() - np.at) / 1000 : 0); return est >= np.dur * 0.85; },
+  async finish(my, code) {
+    if (AUTO.key !== my) return; AUTO.stop();
+    const cur = D.queue[0]; if (!cur || cur.code !== code) return; // a fila mudou no meio
+    const done = sung(); if (!done) { toast('Avanço automático: não consegui marcar como cantada.'); return; }
+    if (salaShared()) { for (let i = 0; i < 20 && D.queue[0] && D.queue[0].code === code && D.queue[0].q === cur.q; i++) await new Promise(r => setTimeout(r, 250)); }
+    ui.nowKey = null; const next = qCurrent(); const ti = songOf(done) ? songOf(done).title : '';
+    if (!next) { toast('Cantada: ' + ti + ' · a fila terminou.'); render(); return; }
+    const vid = parseVid(next.url); if (!vid) { toast('Cantada: ' + ti + ' · a próxima não tem link válido.'); render(); return; }
+    try { await TV.send(vid); toast('Cantada: ' + ti + ' · tocando: ' + songOf(next).title, { ms: 5000 }); render(); AUTO.watch(vid, next.code); }
+    catch (e) { toast('Cantada: ' + ti + '. Não consegui enviar a próxima (' + (e && e.message ? tvErrMsg(e) : e) + ').', { ms: 6000 }); render(); }
+  }
+};
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && AUTO.watching) AUTO.wake(true); });
 const TV_ERR = {
   noproxy: 'Falta o endereço do proxy nos Ajustes.',
   nopair: 'TV não pareada. Digite o código nos Ajustes.',
@@ -1841,6 +1905,7 @@ function ratingBtns() {
 function queueFull(noHead) {
   const cur = qCurrent();
   let h = noHead ? '' : `<div class="pad" style="padding-top:18px;padding-bottom:6px"><div style="font-size:22px;font-weight:800">Fila</div><div class="muted" style="font-size:13px">${cur ? `1 agora · ${D.queue.length - 1} na espera` : 'vazia'}</div>${SALA.member() ? `<div class="fx ac g6 muted" style="font-size:12px;font-weight:700;margin-top:4px"><span class="dot ${SALA.st === 'on' ? 'ok' : 'broken'}"></span>Sala <span class="mono">${esc(SALA.cfg().code)}</span> · ${SALA.st === 'on' ? 'conectada' : 'sem conexão'}</div>` : ''}</div>`;
+  if (D.settings.tvScreen && TV.base() && !(SALA.relayTV && SALA.relayTV())) h += `<div class="pad" style="padding-top:2px;padding-bottom:0"><label class="fx ac g8" style="min-height:44px"><input type="checkbox" data-change="autoAdv" ${D.settings.autoAdv ? 'checked' : ''} aria-label="Avanço automático"><span class="fx1"><b>Avanço automático</b><span class="muted" style="display:block;font-size:12px">${D.settings.autoAdv ? (AUTO.watching ? 'escutando a TV: quando o vídeo acabar, marca Cantei e toca a próxima' : 'ligado: envie uma música para a TV e o app cuida das seguintes') : 'ao acabar o vídeo, toca a próxima da fila sozinho'}</span></span></label></div>`;
   if (!cur) return h + `<div class="empty"><div class="big" style="width:88px;height:88px;border-radius:44px">${ic('queue', 40, 1.6)}</div><h3 style="font-size:18px">Fila vazia</h3><p>Toque no ícone de fila de uma música para adicionar aqui.</p></div>`;
   const s = songOf(cur);
   h += `<div class="scroll pad" data-sk="queue" style="padding-top:8px;padding-bottom:12px">
@@ -2895,7 +2960,7 @@ const ACT = {
     toast('Enviando para a TV…', { ms: 2500 });
     try {
       let name;
-      if (SALA.relayTV()) { await SALA.tv(c.code); name = 'a TV'; } else { await TV.send(vid); name = D.settings.tvScreen.name || 'a TV'; }
+      if (SALA.relayTV()) { await SALA.tv(c.code); name = 'a TV'; } else { await TV.send(vid); name = D.settings.tvScreen.name || 'a TV'; AUTO.watch(vid, c.code); }
       if (!(d && d.code) || (D.queue[0] && D.queue[0].code === d.code)) { toast('Enviado para ' + name + '.'); return; }
       // enviada da lista de versões: vira a música da vez; a que estava na vez passa a ser a próxima
       const before = D.queue.slice(); const had = D.queue.find(e => e.code === d.code);
@@ -3200,6 +3265,7 @@ document.addEventListener('change', e => {
     case 'devName': { const dv = devInfo(); if (dv) { dv.name = t.value.trim() || dv.name; save('settings'); render(); syncSoon(3000); } break; }
     case 'devSlot': { const dv = devInfo(); const k = parseInt(t.value, 10); if (dv && k >= 0) { dv.slot = k; save('settings'); render(); syncSoon(1500); toast('Faixa trocada. Vale só para músicas novas.'); } break; }
     case 'frName': ui.fr.name = t.value; break;
+    case 'autoAdv': D.settings.autoAdv = !!t.checked; save('settings'); if (D.settings.autoAdv) AUTO.attachCurrent(); else AUTO.stop(); render(); toast(D.settings.autoAdv ? 'Avanço automático ligado.' : 'Avanço automático desligado.'); break;
     case 'tvProxy': D.settings.tvProxy = t.value.trim(); save('settings'); break;
     case 'salaUrl': D.settings.salaUrl = t.value.trim().replace(/\/+$/, ''); save('settings'); if (SALA.member()) { SALA.drop(); SALA.connect(); } break;
     case 'salaName': D.settings.salaName = t.value.trim(); save('settings'); if (SALA.member()) { SALA.drop(); SALA.connect(); } render(); break;
@@ -3233,6 +3299,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener && matchMedia('(pref
   if (!MGR && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { }); if (!MGR && /^https?:$/.test(location.protocol) && navigator.onLine) setTimeout(() => checkUpdate(true), 3000);
   setTimeout(() => ghSyncNow(false), 3500);
   salaInit(); if (ui.join) render();
+  setTimeout(() => { if (D.settings.autoAdv) AUTO.attachCurrent(); }, 3000);
 })();
 // o teclado do celular pode deslocar a página inteira; ao sair do campo volta ao topo
 document.addEventListener('focusout', () => setTimeout(() => { if (window.scrollY || document.documentElement.scrollTop) window.scrollTo(0, 0); }, 120));
@@ -3524,7 +3591,7 @@ const SALA = {
   },
   async doTV(m) {     // um moderador pediu: o dono (aparelho pareado) manda para a TV
     const v = X.ver[m.code]; const vid = v ? (v.vid || parseVid(v.url)) : '';
-    try { if (!vid) throw new Error('novideo'); await TV.send(vid); SALA.send({ t: 'tvres', id: m.id, ok: true, to: m.to }, true); }
+    try { if (!vid) throw new Error('novideo'); await TV.send(vid); AUTO.watch(vid, m.code); SALA.send({ t: 'tvres', id: m.id, ok: true, to: m.to }, true); }
     catch (e) { SALA.send({ t: 'tvres', id: m.id, ok: false, err: e.message === 'novideo' ? 'Esta versão não tem link válido.' : tvErrMsg(e), to: m.to }, true); }
   },
   /* ---------- índice do catálogo (para a busca dos convidados) ---------- */
