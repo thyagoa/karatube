@@ -42,12 +42,11 @@
   .chan b{font-size:1.05rem}
   .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
   .tools input{flex:1;min-width:180px}
-  .tablewrap{overflow:auto;border:1px solid var(--line);border-radius:10px;max-height:78vh}
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
   tr.cad td,tr.cad td a,tr.cad td.t rt,tr.cad td.t .rom{color:var(--ok)}
-  tr.esp td{padding:0;border:0;height:0}
   table{border-collapse:collapse;width:100%;min-width:760px}
   th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
-  th{position:sticky;top:0;background:var(--card);font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
+  th{background:var(--card);font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
   th:hover{color:var(--text)}
   tr:last-child td{border-bottom:0}
   td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -70,16 +69,36 @@
   td.t a{line-height:1.9}
   td.t rt{font-size:.58em;color:var(--muted)}
   td.t .rom{display:block;font-size:.82rem;color:var(--muted);margin-top:1px}
+  .letras{margin-bottom:12px;scroll-margin-top:8px}
+  .letras .lin{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .letras .lin + .lin{margin-top:8px}
+  .letras button{padding:5px 10px;font-size:.88rem;min-width:36px;line-height:1.25}
+  .letras button.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+  .letras button:disabled{opacity:.35}
+  .letras button small{display:block;font-size:.68rem;opacity:.75}
+  .letras .nota{color:var(--muted);font-size:.82rem}
+  .pager{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;margin:10px 0}
+  .pager button{min-width:44px}
+  .pager input{width:76px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit;text-align:center}
+  .pager span{color:var(--muted);font-size:.9rem}
+  @media(max-width:700px){
+    .pager{gap:4px}
+    .pager button{padding:8px 6px;min-width:40px}
+    .pager input{width:56px;padding:8px 4px}
+    .pager .longo{display:none}
+    .pager .faixa{flex-basis:100%;text-align:center}
+  }
   [hidden]{display:none!important}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Listador de vídeos de canal do YouTube <span class="ver">v1.7</span></h1>
+  <h1>Listador de vídeos de canal do YouTube <span class="ver">v1.8</span></h1>
   <p class="sub">Informe o canal e receba todos os vídeos com link, botão de copiar e exportação para planilha.</p>
   <details class="hist">
     <summary>Histórico de versões</summary>
     <ul>
+      <li><b>v1.8</b> (26/11/2026): a lista passou a ter páginas de 100 vídeos, com a rolagem normal do navegador (a barra e o Page Up / Page Down voltam a funcionar direito); filtro pela inicial do título: A a Z nas músicas ocidentais e あ か さ た な は ま や ら わ nas japonesas (os títulos que começam em kanji são lidos pelo dicionário).</li>
       <li><b>v1.7</b> (07/11/2026): lista virtual (só as linhas perto da tela ficam na página, então 20 mil vídeos rolam sem travar) e furigana/romaji guardados neste navegador (não converte de novo ao reabrir).</li>
       <li><b>v1.6</b> (05/11/2026): coluna "Catálogo": selo "✓ código" nos vídeos já cadastrados no KaraTube (lido do GitHub e do gerenciador) e botão "Cadastrar" que abre a tela de nova música do gerenciador já preenchida (URL, sugestão de música e cantor, romaji); filtro "Só não cadastrados".</li>
       <li><b>v1.5</b> (05/11/2026): cache dos canais no GitHub (repositório de dados) e neste navegador; seletor de canais já baixados que abre sem usar a API; "Atualizar" que lê só o que é novo (para no primeiro vídeo conhecido); "Recarregar tudo" com confirmação; busca dos antigos salva a cada rodada e continua no dia seguinte; vários aparelhos juntam os vídeos pelo id.</li>
@@ -160,6 +179,8 @@
       <span class="jpst" id="jpStatus"></span>
       <span class="count" id="contagem"></span>
     </div>
+    <div class="letras" id="letras"></div>
+    <div class="pager" id="pagerTopo"></div>
     <div class="tablewrap" id="tablewrap">
       <table>
         <thead>
@@ -176,6 +197,7 @@
         <tbody id="corpo"></tbody>
       </table>
     </div>
+    <div class="pager" id="pagerBase"></div>
   </div>
 </div>
 
@@ -324,6 +346,7 @@
         shasCanal = (ant && ant.shas) || {};
       } catch(e){}
       ordem = {k:'n', dir:1};
+      pagina = 1; grupo = ''; letra = '';
       $('resultado').hidden = false;
       finalizar();
       setStatus(`Pronto: ${videos.length} vídeos listados (do mais novo ao mais antigo).`);
@@ -415,49 +438,176 @@
   $('jpOn').addEventListener('change', () => { try { localStorage.setItem('yt_jp', jpLigado() ? '1' : '0'); } catch(e){} fila = []; $('jpStatus').textContent = ''; render(); });
   try { if (localStorage.getItem('yt_jp') === '0') $('jpOn').checked = false; } catch(e){}
 
-  function visiveis(){
+  /* ---- filtro pela inicial: ocidentais (A–Z) e japonesas (fileiras do gojūon) ---- */
+  const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').concat('#');
+  const FILEIRAS = [['あ', 'A', 'あいうえお'], ['か', 'KA', 'かきくけこ'], ['さ', 'SA', 'さしすせそ'], ['た', 'TA', 'たちつてと'], ['な', 'NA', 'なにぬねの'], ['は', 'HA', 'はひふへほ'],
+    ['ま', 'MA', 'まみむめも'], ['や', 'YA', 'やゆよ'], ['ら', 'RA', 'らりるれろ'], ['わ', 'WA', 'わゐゑをん']];
+  let grupo = '', letra = '';               // grupo: '' (todas), 'oc' (ocidentais) ou 'jp' (japonesas)
+  const iniciais = new Map();               // id -> {t: título, jp, c: 1º caractere do título limpo, base}
+  const lidas = new Map();                  // id -> {t: título, k: fileira do kanji inicial ('?' = não consegui ler)}
+  let lendo = false, erroLeitura = '', sujoLidas = false;
+  function inicial(v){
+    let x = iniciais.get(v.id);
+    if (x && x.t === v.title) return x;
+    let b = limparTitulo(v.title).normalize('NFKC'), ant;
+    do {   // tira etiquetas do começo (【…】, [..]) e pontuação solta
+      ant = b;
+      b = b.replace(/^\s*(?:【[^】]*】|\[[^\]]*\]|［[^］]*］)/, '').replace(/^[^\p{L}\p{N}]+/u, '');
+    } while (b !== ant);
+    if (!b) b = v.title.normalize('NFKC').replace(/^[^\p{L}\p{N}]+/u, '');
+    x = {t:v.title, jp:temJP(b), c:b.charAt(0), base:b};
+    iniciais.set(v.id, x); return x;
+  }
+  function fileiraDe(c){   // kana (hiragana ou katakana, com ou sem dakuten, grande ou pequeno) -> fileira
+    let h = (c || '').normalize('NFD').charAt(0);
+    const n = h.charCodeAt(0);
+    if (n >= 0x30a1 && n <= 0x30f6) h = String.fromCharCode(n - 0x60);
+    const peq = 'ぁぃぅぇぉっゃゅょゎゕゖ', gr = 'あいうえおつやゆよわかけ', i = peq.indexOf(h);
+    if (i >= 0) h = gr[i];
+    const f = FILEIRAS.find(r => h && r[2].includes(h));
+    return f ? f[0] : '';
+  }
+  const ehKanji = c => /[\p{Script=Han}々]/u.test(c || '');
+  function letraDe(v){   // chave do botão em que o vídeo entra, dentro do grupo atual
+    const x = inicial(v);
+    if (grupo === 'oc'){ const l = x.c.normalize('NFD').charAt(0).toUpperCase(); return /^[A-Z]$/.test(l) ? l : '#'; }
+    const k = fileiraDe(x.c); if (k) return k;
+    if (/^[\p{Script=Latin}\p{N}]/u.test(x.c)) return 'abc';
+    if (ehKanji(x.c)){ const r = lidas.get(v.id); return r && r.t === v.title ? r.k : '…'; }
+    return '?';
+  }
+  async function lerKanjis(){   // lê a pronúncia do começo dos títulos que começam em kanji (uma vez; fica guardada)
+    if (lendo || grupo !== 'jp') return;
+    const falta = videos.filter(v => { const x = inicial(v); if (!x.jp || !ehKanji(x.c)) return false; const r = lidas.get(v.id); return !(r && r.t === v.title); });
+    if (!falta.length) return;
+    lendo = true; erroLeitura = '';
+    try {
+      const k = await iniciarKuro();
+      for (let i = 0; i < falta.length; i++){
+        const v = falta[i];
+        let h = ''; try { h = await k.convert(inicial(v).base.slice(0, 14), {to:'hiragana'}); } catch(e){}
+        lidas.set(v.id, {t:v.title, k:fileiraDe(h.trim().charAt(0)) || '?'}); sujoLidas = true;
+        if (i % 150 === 0){
+          const e = $('lendoTxt'); if (e) e.textContent = 'Lendo os kanji… ' + fmtNum(i) + ' de ' + fmtNum(falta.length);
+          await new Promise(ok => setTimeout(ok, 0));
+          if (grupo !== 'jp') break;
+        }
+      }
+    } catch(e){ erroLeitura = e.message || 'falha no dicionário'; }
+    lendo = false;
+    if (sujoLidas){ sujoLidas = false; const o = {}; lidas.forEach((r, id) => { o[id] = r; }); localPut('jp-iniciais', o); }
+    render();
+    if (!erroLeitura && grupo === 'jp') lerKanjis();   // sobrou algo (canal trocado no meio, por exemplo)
+  }
+  async function carregarLidas(){
+    const o = await localGet('jp-iniciais');
+    if (!o || typeof o !== 'object') return;
+    Object.keys(o).forEach(id => { const r = o[id]; if (r && typeof r.k === 'string' && !lidas.has(id)) lidas.set(id, {t:r.t, k:r.k}); });
+    if (videos.length) render();
+  }
+
+  function filtrados(){   // texto e "só não cadastrados" (ainda sem o filtro de inicial)
     const f = $('filtro').value.trim().toLowerCase();
-    let lista = $('soNovos').checked ? videos.filter(v => !catVids.has(v.id)) : videos;
-    lista = f ? lista.filter(v => v.title.toLowerCase().includes(f) || ((lerJP.get(v.id) || {}).rom || '').toLowerCase().includes(f)) : lista.slice();
+    const l = $('soNovos').checked ? videos.filter(v => !catVids.has(v.id)) : videos;
+    return f ? l.filter(v => v.title.toLowerCase().includes(f) || ((lerJP.get(v.id) || {}).rom || '').toLowerCase().includes(f)) : l.slice();
+  }
+  const doGrupo = l => grupo ? l.filter(v => inicial(v).jp === (grupo === 'jp')) : l;
+  function ordenar(l){
     const {k, dir} = ordem;
-    lista.sort((a, b) => {
+    return l.sort((a, b) => {
       const x = a[k], y = b[k];
       if (typeof x === 'string') return x.localeCompare(y, 'pt-BR') * dir;
       return ((x ?? -1) - (y ?? -1)) * dir;
     });
-    return lista;
+  }
+  function visiveis(){   // tudo que passa nos filtros, em todas as páginas (a cópia e o CSV usam isto)
+    let l = doGrupo(filtrados());
+    if (grupo && letra) l = l.filter(v => letraDe(v) === letra);
+    return ordenar(l);
   }
 
-  /* lista virtual: só as linhas perto da área visível ficam na página (20 mil linhas não travam) */
-  const LIM_TUDO = 300, BUF = 25;
-  let lista = [], altura = 52, janela = [-1, -1];
+  function botao(txt, ligado, acao, qtd, sub){
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = txt;
+    if (sub){ const m = document.createElement('small'); m.textContent = sub; b.appendChild(m); }
+    if (ligado) b.className = 'on';
+    if (qtd != null){ b.title = fmtNum(qtd) + (qtd === 1 ? ' vídeo' : ' vídeos'); if (!qtd && !ligado) b.disabled = true; }
+    b.setAttribute('aria-pressed', ligado ? 'true' : 'false');
+    b.addEventListener('click', acao);
+    return b;
+  }
+  function pintarLetras(base){
+    const nj = base.reduce((n, v) => n + (inicial(v).jp ? 1 : 0), 0);
+    const box = $('letras'); box.textContent = '';
+    const lin = () => { const d = document.createElement('div'); d.className = 'lin'; box.appendChild(d); return d; };
+    const nota = (d, t, id) => { const e = document.createElement('span'); e.className = 'nota'; e.textContent = t; if (id) e.id = id; d.appendChild(e); };
+    const l1 = lin();
+    [['', 'Todas', base.length], ['oc', 'Ocidentais', base.length - nj], ['jp', 'Japonesas', nj]].forEach(([g, nome, q]) =>
+      l1.appendChild(botao(nome + ' (' + fmtNum(q) + ')', grupo === g, () => { grupo = g; letra = ''; erroLeitura = ''; primeira(); lerKanjis(); })));
+    if (!grupo) return;
+    const cont = {}; doGrupo(base).forEach(v => { const k = letraDe(v); cont[k] = (cont[k] || 0) + 1; });
+    const l2 = lin();
+    const um = (k, txt, sub) => l2.appendChild(botao(txt, letra === k, () => { letra = letra === k ? '' : k; primeira(); }, cont[k] || 0, sub));
+    l2.appendChild(botao('Tudo', !letra, () => { letra = ''; primeira(); }));
+    if (grupo === 'oc') LETRAS.forEach(k => um(k, k));
+    else {
+      FILEIRAS.forEach(r => um(r[0], r[0], r[1]));
+      um('abc', 'A–Z', 'e 0–9');
+      if (cont['?'] || letra === '?') um('?', 'Outros', 'sem leitura');
+      if (cont['…'] || letra === '…') um('…', 'Kanji', 'a ler');
+      if (lendo) nota(lin(), 'Lendo os kanji…', 'lendoTxt');
+      else if (erroLeitura){
+        const d = lin(); nota(d, 'Não consegui ler os kanji (' + erroLeitura + '). Os títulos que começam em kana continuam filtrando.');
+        d.appendChild(botao('Tentar de novo', false, () => { erroLeitura = ''; lerKanjis(); render(); }));
+      }
+    }
+  }
+
+  /* ---- páginas ---- */
+  const POR_PAGINA = 100;
+  let lista = [], pagina = 1;
+  const paginas = () => Math.max(1, Math.ceil(lista.length / POR_PAGINA));
+  function primeira(){ pagina = 1; render(); }
+  function irPara(p, subir){
+    p = Math.min(paginas(), Math.max(1, Math.round(p) || 1));
+    const mudou = p !== pagina; pagina = p; pintarPagina(); pintarPaginador();
+    if (subir && mudou) $('pagerTopo').scrollIntoView({block:'start'});
+  }
   function render(ev){
-    lista = visiveis();
-    const tw = $('tablewrap');
-    if (ev && ev.type) tw.scrollTop = 0;
-    janela = [-1, -1];
-    pintarJanela();
+    if (ev && ev.type) pagina = 1;
+    const base = filtrados();
+    lista = doGrupo(base);
+    if (grupo && letra) lista = lista.filter(v => letraDe(v) === letra);
+    ordenar(lista);
+    pagina = Math.min(pagina, paginas());
+    pintarLetras(base);
+    pintarPagina();
+    pintarPaginador();
     $('contagem').textContent = lista.length === videos.length ? `${videos.length} vídeos` : `${lista.length} de ${videos.length} vídeos`;
   }
-  function faixa(){
-    const n = lista.length;
-    if (n <= LIM_TUDO) return [0, n];
-    const tw = $('tablewrap'), cab = tw.querySelector('thead').offsetHeight;
-    const topo = Math.max(0, tw.scrollTop - cab);
-    const a = Math.max(0, Math.floor(topo / altura) - BUF);
-    const b = Math.min(n, Math.ceil((topo + tw.clientHeight) / altura) + BUF);
-    return [a, b];
+  function pintarPaginador(){
+    const total = paginas(), n = lista.length;
+    [$('pagerTopo'), $('pagerBase')].forEach((box, onde) => {
+      box.textContent = ''; box.hidden = n <= POR_PAGINA;
+      if (n <= POR_PAGINA) return;
+      const seta = (txt, nome, alvo, off) => { const b = document.createElement('button'); b.type = 'button'; txt.split('|').forEach((t, j) => { const e = document.createElement('span'); e.textContent = t; if (j === 1) e.className = 'longo'; b.appendChild(e); }); b.title = nome; b.setAttribute('aria-label', nome); b.disabled = off; b.addEventListener('click', () => irPara(alvo, onde === 1)); box.appendChild(b); };
+      const txt = (t, cls) => { const e = document.createElement('span'); e.textContent = t; if (cls) e.className = cls; box.appendChild(e); };
+      seta('«', 'Primeira página', 1, pagina === 1);
+      seta('‹| Anterior', 'Página anterior', pagina - 1, pagina === 1);
+      txt('Página', 'longo');
+      const i = document.createElement('input'); i.type = 'number'; i.min = 1; i.max = total; i.value = pagina; i.setAttribute('aria-label', 'Ir para a página');
+      i.addEventListener('change', () => irPara(+i.value, onde === 1)); box.appendChild(i);
+      txt('de ' + fmtNum(total));
+      seta('|Próxima |›', 'Próxima página', pagina + 1, pagina === total);
+      seta('»', 'Última página', total, pagina === total);
+      txt(fmtNum((pagina - 1) * POR_PAGINA + 1) + '–' + fmtNum(Math.min(n, pagina * POR_PAGINA)) + ' de ' + fmtNum(n), 'faixa');
+    });
   }
-  function pintarJanela(){
-    const [a, b] = faixa();
-    if (janela[0] === a && janela[1] === b) return;
-    janela = [a, b];
+  function pintarPagina(){
+    const a = (pagina - 1) * POR_PAGINA, b = Math.min(lista.length, a + POR_PAGINA);
     const corpo = $('corpo');
     corpo.innerHTML = '';
     const frag = document.createDocumentFragment();
     if (obs) obs.disconnect(); celulas.clear(); celCat.clear(); fila = [];
-    const esp = h => { const tr = document.createElement('tr'); tr.className = 'esp'; const td = document.createElement('td'); td.colSpan = 7; td.style.height = h + 'px'; tr.appendChild(td); return tr; };
-    if (a > 0) frag.appendChild(esp(Math.round(a * altura)));
     for (let i = a; i < b; i++){
       const v = lista[i];
       const jp0 = lerJP.get(v.id); if (jp0 && jp0.t !== undefined && jp0.t !== v.title) lerJP.delete(v.id);   // título mudou: converte de novo
@@ -466,30 +616,23 @@
       const td = tr.children;
       td[0].textContent = v.n;
       const link = td[1].firstChild; link.textContent = v.title; link.href = v.url;
-      celulas.set(v.id, td[1]); celCat.set(v.id, td[6]); porId.set(v.id, v); pintarCat(v, td[6]);
-      if (jpLigado() && lerJP.has(v.id)) pintarTitulo(v, td[1]); else observar(td[1], v);
+      celulas.set(v.id, td[1]); celCat.set(v.id, td[6]); porId.set(v.id, v);
+      frag.appendChild(tr); pintarCat(v, td[6]);
       td[2].textContent = fmtData(v.date);
       td[3].textContent = fmtDur(v.dur);
       td[4].textContent = fmtNum(v.views);
       const btn = td[5].firstChild;
       btn.addEventListener('click', () => copiar(v.url, btn, 'Copiar link'));
-      frag.appendChild(tr);
     }
-    if (b < lista.length) frag.appendChild(esp(Math.round((lista.length - b) * altura)));
     corpo.appendChild(frag);
-    medirAltura();
+    for (let i = a; i < b; i++){ const v = lista[i], c = celulas.get(v.id); if (!c) continue; if (jpLigado() && lerJP.has(v.id)) pintarTitulo(v, c); else observar(c, v); }
   }
-  function medirAltura(){   // altura média real das linhas (furigana/romaji deixam algumas mais altas)
-    if (lista.length <= LIM_TUDO) return;
-    const trs = $('corpo').querySelectorAll('tr:not(.esp)');
-    if (trs.length > 5){ let h = 0; trs.forEach(t => h += t.offsetHeight); const m = h / trs.length; if (m > 20) altura = m; }
-  }
-  let rolando = false;
-  $('tablewrap').addEventListener('scroll', () => {
-    if (rolando || lista.length <= LIM_TUDO) return; rolando = true;
-    requestAnimationFrame(() => { rolando = false; pintarJanela(); });
+  document.addEventListener('keydown', e => {   // setas ← → trocam de página (fora de campos de texto e listas)
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || $('resultado').hidden || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    const t = e.target; if (t && (/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) || (t.closest && t.closest('.tablewrap')))) return;
+    if (paginas() < 2) return;
+    e.preventDefault(); irPara(pagina + (e.key === 'ArrowRight' ? 1 : -1), true);
   });
-  window.addEventListener('resize', () => { janela = [-1, -1]; pintarJanela(); });
   async function copiar(texto, btn, rotulo){
     try {
       await navigator.clipboard.writeText(texto);
@@ -556,6 +699,7 @@
     if (videos.length) render();
   }
   carregarJP();
+  carregarLidas();
 
   // repositório e token: os salvos aqui ou os que o gerenciador/app já guardaram neste site
   async function configDoApp(){
@@ -718,6 +862,7 @@
     playlistIds = new Set(videos.filter(v => v.o === 'u').map(v => v.id));
     ordem = {k:'n', dir:1};
     $('resultado').hidden = false; $('filtro').value = '';
+    pagina = 1; grupo = ''; letra = '';
     finalizar();
     setStatus('Canal aberto do cache: ' + fmtNum(videos.length) + ' vídeos, sem usar a API. Última atualização: ' + fmtData(m.atualizadoEm) + '.');
   }
@@ -927,6 +1072,7 @@
     videos.forEach((v, i) => v.n = i + 1);
     atualizarCab();
     render();
+    lerKanjis();
   }
 
   async function buscarAntigos(){
@@ -1011,7 +1157,7 @@
   document.querySelectorAll('th[data-k]').forEach(th => th.addEventListener('click', () => {
     const k = th.dataset.k;
     ordem = {k, dir: ordem.k === k ? -ordem.dir : 1};
-    render();
+    primeira();
   }));
 })();
 </script>
