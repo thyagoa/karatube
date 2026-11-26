@@ -285,7 +285,7 @@ body{position:fixed;inset:0;width:100%}
 <body>
 <div id="app"></div>
 <script>
-const APP_VERSION="1.28.1",APP_BUILD=1795566718,MGR=true;
+const APP_VERSION="1.29.0",APP_BUILD=1795723347,MGR=true;
 'use strict';
 /* =====================================================================
    KaraTube · núcleo: utilidades, dados, códigos, busca, fila, histórico
@@ -828,17 +828,24 @@ const TV = {
    Com a opção ligada, o app escuta a TV (mesma escuta do diagnóstico). Quando o vídeo enviado acaba
    (a TV manda um nowPlaying sem videoId, perto do fim da duração), marca "Cantei" e envia o próximo da fila. */
 const AUTO = {
-  locked() { return !!D.settings.autoAdv && AUTO.watching; }, // escutando a TV: o app marca Cantei e passa de música sozinho
-  key: 0, ac: null, watching: false, wl: null, vid: '', code: '',
+  // com o avanço agindo, o app marca Cantei e passa de música sozinho: no dono (ou sozinho) e, na festa, também no moderador
+  locked() { return AUTO.active() || (typeof SALA !== 'undefined' && !!SALA.relayTV && SALA.relayTV() && SALA.st === 'on' && !!SALA.who.auto); },
+  active() { return !!D.settings.autoAdv && (AUTO.watching || AUTO.busy); },
+  key: 0, ac: null, watching: false, busy: false, shown: false, told: false, wl: null, vid: '', code: '',   // busy = entre o fim de um vídeo e o envio do próximo
   on() { return !!D.settings.autoAdv && !!D.settings.tvScreen && !!TV.base() && !(typeof SALA !== 'undefined' && SALA.relayTV && SALA.relayTV()); },
-  setW(v) { if (AUTO.watching !== v) { AUTO.watching = v; if (typeof render === 'function') render(); } },
+  setW(v) { AUTO.watching = v; AUTO.sync(); },
+  sync() {
+    const on = AUTO.watching || AUTO.busy; if (on !== AUTO.shown) { AUTO.shown = on; if (typeof render === 'function') render(); }
+    if (!AUTO.told) { AUTO.told = true; Promise.resolve().then(() => { AUTO.told = false; AUTO.tell(); }); } // junta o desliga-liga da troca de música num aviso só
+  },
+  tell() { if (typeof SALA !== 'undefined' && SALA.member() && SALA.role() === 'owner' && SALA.live()) SALA.send({ t: 'auto', on: AUTO.active() }, true); },
   async wake(on) {
     try {
       if (!on) { if (AUTO.wl) { AUTO.wl.release(); AUTO.wl = null; } return; }
       if (navigator.wakeLock && !AUTO.wl && document.visibilityState === 'visible') { AUTO.wl = await navigator.wakeLock.request('screen'); AUTO.wl.addEventListener('release', () => { AUTO.wl = null; }); }
     } catch (e) { }
   },
-  stop() { AUTO.key++; if (AUTO.ac) { try { AUTO.ac.abort(); } catch (e) { } } AUTO.ac = null; AUTO.wake(false); AUTO.setW(false); },
+  stop(busy) { AUTO.key++; if (AUTO.ac) { try { AUTO.ac.abort(); } catch (e) { } } AUTO.ac = null; AUTO.busy = !!busy; AUTO.wake(!!busy); AUTO.setW(false); },
   attachCurrent() { const c = qCurrent(); if (c && AUTO.on()) AUTO.watch(parseVid(c.url), c.code); else AUTO.stop(); },
   async watch(vid, code) {
     AUTO.stop(); if (!vid || !AUTO.on()) return;
@@ -876,19 +883,38 @@ const AUTO = {
     }
   },
   ended(np) { if (!np.dur) return false; const est = np.ct + (np.st === '1' ? (Date.now() - np.at) / 1000 : 0); return est >= np.dur * 0.85; },
+  ROOM_WAIT: 120000, // quanto esperar a sala voltar quando o vídeo acaba sem conexão
   async finish(my, code) {
-    if (AUTO.key !== my) return; AUTO.stop();
-    const cur = D.queue[0]; if (!cur || cur.code !== code) return; // a fila mudou no meio
-    const done = sung(); if (!done) { toast('Avanço automático: não consegui marcar como cantada.'); return; }
-    if (salaShared()) { for (let i = 0; i < 20 && D.queue[0] && D.queue[0].code === code && D.queue[0].q === cur.q; i++) await new Promise(r => setTimeout(r, 250)); }
-    ui.nowKey = null; const next = qCurrent(); const ti = songOf(done) ? songOf(done).title : '';
-    if (!next) { toast('Cantada: ' + ti + ' · a fila terminou.'); render(); return; }
-    const vid = parseVid(next.url); if (!vid) { toast('Cantada: ' + ti + ' · a próxima não tem link válido.'); render(); return; }
-    try { await TV.send(vid); toast('Cantada: ' + ti + ' · tocando: ' + songOf(next).title, { ms: 5000 }); render(); AUTO.watch(vid, next.code); }
-    catch (e) { toast('Cantada: ' + ti + '. Não consegui enviar a próxima (' + (e && e.message ? tvErrMsg(e) : e) + ').', { ms: 6000 }); render(); }
+    if (AUTO.key !== my) return; AUTO.stop(true); const k = AUTO.key;
+    const mine = () => AUTO.key === k; // outro envio, ou a caixa desligada no meio: vale o mais novo
+    try { await AUTO.advance(code, mine); }
+    finally { if (mine()) { AUTO.busy = false; AUTO.wake(false); AUTO.sync(); } }
+  },
+  async advance(code, mine) {
+    const nap = () => new Promise(r => setTimeout(r, 250));
+    if (salaShared() && !SALA.live()) {
+      toast('Avanço automático: sem conexão com a sala. Esperando voltar…', { ms: 6000 });
+      for (const t0 = Date.now(); mine() && salaShared() && !SALA.live() && Date.now() - t0 < AUTO.ROOM_WAIT;) await nap();
+      if (!mine()) return;
+      if (salaShared() && !SALA.live()) { toast('Avanço automático parou: a sala não voltou. Toque em Cantei quando reconectar.', { ms: 8000 }); return; }
+    }
+    const cur = D.queue[0]; let done = null;
+    if (cur && cur.code === code) {
+      done = sung(); if (!done) { toast('Avanço automático: não consegui marcar como cantada.'); return; }
+      if (salaShared()) {
+        for (let i = 0; i < 20 && D.queue[0] && D.queue[0].q === cur.q; i++) await nap();
+        if (!mine()) return;
+        if (D.queue[0] && D.queue[0].q === cur.q) { toast('Avanço automático parou: a sala não confirmou a fila.', { ms: 6000 }); return; }
+      }
+    } // senão a fila mudou no meio da música: não marca nada e toca a que está na vez agora
+    ui.nowKey = null; const next = qCurrent(); const pre = done ? 'Cantada: ' + (songOf(done) ? songOf(done).title : '') : 'A fila mudou';
+    if (!next) { toast(pre + ' · a fila terminou.'); render(); return; }
+    const vid = parseVid(next.url); if (!vid) { toast(pre + ' · a próxima não tem link válido.'); render(); return; }
+    try { await TV.send(vid); if (!mine()) return; toast(pre + ' · tocando: ' + songOf(next).title, { ms: 5000 }); render(); AUTO.watch(vid, next.code); }
+    catch (e) { toast(pre + '. Não consegui enviar a próxima (' + (e && e.message ? tvErrMsg(e) : e) + ').', { ms: 6000 }); render(); }
   }
 };
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && AUTO.watching) AUTO.wake(true); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (AUTO.watching || AUTO.busy)) AUTO.wake(true); });
 const TV_ERR = {
   noproxy: 'Falta o endereço do proxy nos Ajustes.',
   nopair: 'TV não pareada. Digite o código nos Ajustes.',
@@ -1913,7 +1939,7 @@ function queueFull(noHead) {
       <div class="fx ac g6" style="margin-top:4px"><span class="dot ${cur.link || 'unverified'}"></span><span class="muted" style="font-size:12px">${linkLabel(cur.link)}</span></div></div></div>
     ${[cur.key && 'Tom ' + cur.key, cur.voice].filter(Boolean).length ? `<div class="chips" style="gap:6px;margin-top:8px">${[cur.key && 'Tom ' + cur.key, cur.voice].filter(Boolean).map(m => `<span class="mini">${esc(m)}</span>`).join('')}</div>` : ''}
     <div class="fx g8" style="margin-top:12px">${btn('Abrir no YouTube', 'openYT', { cls: 'primary grow lg', icon: 'play', d: { code: cur.code } })}${ib('tv', 'tv', 'Enviar para a TV', { cls: 'bd', s: 22 })}</div>
-    ${AUTO.locked() ? '<div style="margin-top:10px;font-size:13px;color:var(--accent);font-weight:700">Passa sozinho quando o vídeo acabar. Dê a nota agora, se quiser.</div>' : ''}<div class="fx col ac" style="margin-top:6px"><div class="muted" style="font-size:11px;font-weight:700">Nota (opcional)</div>${ratingBtns()}</div>
+    ${AUTO.locked() ? `<div style="margin-top:10px;font-size:13px;color:var(--accent);font-weight:700">Passa sozinho quando o vídeo acabar. ${AUTO.active() ? 'Dê a nota agora, se quiser.' : 'Quem controla é o aparelho do dono.'}</div>` : ''}${AUTO.locked() && !AUTO.active() ? '' : `<div class="fx col ac" style="margin-top:6px"><div class="muted" style="font-size:11px;font-weight:700">Nota (opcional)</div>${ratingBtns()}</div>`}
     <button class="btn text" style="width:100%;color:${cur.link === 'broken' ? 'var(--danger)' : 'var(--muted)'}" data-act="broken">${ic('warn', 18)}${cur.link === 'broken' ? 'Link marcado como quebrado · desfazer' : 'Link quebrado (continua na fila)'}</button>
     <div class="fx g8" style="margin-top:6px">${btn('Cantei', 'sung', { cls: 'ok grow lg', icon: 'check', dis: AUTO.locked() })}${btn('Não cantei', 'skip', { cls: 'grow lg', icon: 'close', dis: AUTO.locked() })}</div>
    </div>`;
@@ -3505,7 +3531,7 @@ const SALA = {
   resume() { if (SALA.cfg() && SALA.url()) SALA.connect(); },
   leave(msg) {
     const wasMod = SALA.role() === 'mod', prev = D.settings.salaPrev;
-    SALA.drop(); SALA.unwake(); delete D.settings.sala; SALA.queue = []; SALA.who = { owner: false, mods: 0, guests: 0 };
+    SALA.drop(); SALA.unwake(); delete D.settings.sala; SALA.queue = []; SALA.who = { owner: false, mods: 0, guests: 0, auto: false };
     SALA.g = SALA.gNew(); SALA.gReq = {}; SALA.stale = false; SALA.syncing = false; SALA.own = ''; SALA.theme = ''; SALA.reqs = []; SALA.reqSent = {}; ui.greq = null; ui.greqTab = 'new';
     // moderador: a fila de volta ao que era antes de entrar (a fila da sala não fica no aparelho dele)
     if (wasMod && Array.isArray(prev)) { D.queue = prev; save('queue'); }
@@ -3519,7 +3545,7 @@ const SALA = {
       case 'ready': {
         if (!c) return;
         SALA.st = 'on'; SALA.tries = 0; SALA.lastRx = Date.now(); c.role = m.role; c.was = true; SALA.queue = m.queue || []; SALA.cfgApply(m); SALA.ixTs = m.ixTs || 0; SALA.ixN = m.ixN || 0; SALA.gTs = SALA.ixTs; SALA.stale = false;
-        if (m.role !== 'owner') delete c.ownerKey; else SALA.send({ t: 'cfg', theme: SALA.ownerTheme() }, true);
+        if (m.role !== 'owner') delete c.ownerKey; else { SALA.send({ t: 'cfg', theme: SALA.ownerTheme() }, true); AUTO.tell(); }
         if (SALA.shared()) {
           if (!c.synced) {
             const same = D.queue.length === SALA.queue.length && D.queue.every((e, i) => e.code === SALA.queue[i].code);
@@ -3533,7 +3559,7 @@ const SALA = {
         save('settings'); render(); break;
       }
       case 'queue': SALA.queue = m.queue || []; if (SALA.shared()) SALA.applyQueue(); render(); break;
-      case 'who': SALA.who = m; if (ui.tab === 'aju' || SALA.guest()) render(); break;
+      case 'who': { const was = !!SALA.who.auto; SALA.who = m; if (ui.tab === 'aju' || SALA.guest() || was !== !!m.auto) render(); break; }
       case 'cfg': SALA.cfgApply(m); if (SALA.guest()) { SALA.g.cache = {}; SALA.gReq = {}; SALA.gStart(true); } render(); break;
       case 'indexed': SALA.ixTs = m.ts; SALA.ixN = m.n; if (SALA.guest() && SALA.gTs !== m.ts) SALA.stale = true; render(); break;
       case 'list': SALA.gRecv(m); break;

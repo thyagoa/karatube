@@ -24,6 +24,7 @@ Algumas versões do app mudam o `worker-sala.js`. Quando isso acontece, o app no
 
 | Versão do app | O que depende do Worker novo |
 |---|---|
+| 1.29 | Moderadores com Cantei / Não cantei travados enquanto o Avanço automático do dono está agindo |
 | 1.21 | Convidado navegar no catálogo, filtros, limite de pedidos configurável, nome do dono, tema herdado e aviso de catálogo novo |
 
 Durante o Deploy as conexões podem cair por alguns segundos; os aparelhos reconectam sozinhos e a fila da festa é mantida.
@@ -45,6 +46,13 @@ Durante o Deploy as conexões podem cair por alguns segundos; os aparelhos recon
 São aparelhos que acessam o seu repositório de dados do GitHub (cada um pode ter o seu token). Em Ajustes › Modo Festa, cole o endereço do Worker e digite o código da festa. Eles viram moderadores sozinhos: podem tudo na fila, marcar Cantei e abrir no YouTube. Para enviar à TV, o aparelho do **dono** precisa estar aberto e conectado: é ele que fala com a TV.
 
 Ao sair da festa, o moderador volta à fila que tinha antes de entrar. O dono, ao sair ou encerrar, fica com uma cópia da fila daquele momento.
+
+### Avanço automático na festa (v1.29.0)
+- Só o **dono** liga a opção (caixa no topo da Fila). Com ela agindo, **Cantei** e **Não cantei** ficam travados no dono e nos moderadores. Tirar da fila e subir as próximas continuam liberados.
+- Quem marca Cantei é o aparelho do dono, e a nota e o histórico ficam nele. Por isso o moderador não vê as estrelas enquanto está travado.
+- Se a fila mudar no meio da música, ao acabar o vídeo o app não marca nada e manda para a TV a música que está na vez.
+- Se o dono estiver sem conexão com a sala quando o vídeo acabar, o app espera até 2 minutos e continua quando a conexão voltar.
+- Se o dono sair da sala (ou desligar a opção), os moderadores destravam.
 
 ## 5. O que o convidado vê
 - **Topo:** "Festa de" e o nome do dono, quantas pessoas estão conectadas, o ícone de **sincronização** e o **mini QR** (toque para mostrar o QR da festa para outras pessoas).

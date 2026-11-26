@@ -45,9 +45,14 @@ export class Sala {
   all() { return this.state.getWebSockets(); }
   att(ws) { try { return ws.deserializeAttachment() || {}; } catch (e) { return {}; } }
   bcast(o, pred) { this.all().forEach(ws => { const a = this.att(ws); if (a.role && (!pred || pred(a))) this.send(ws, o); }); }
-  presence() {
-    const a = this.all().map(w => this.att(w)).filter(x => x.role);
-    return { t: 'who', owner: a.some(x => x.role === 'owner'), mods: a.filter(x => x.role === 'mod').length, guests: a.filter(x => x.role === 'guest').length };
+  presence(gone) {   // gone = conexão que está fechando (ainda pode aparecer na lista)
+    const a = this.all().filter(w => w !== gone).map(w => this.att(w)).filter(x => x.role);
+    return { t: 'who', owner: a.some(x => x.role === 'owner'), mods: a.filter(x => x.role === 'mod').length, guests: a.filter(x => x.role === 'guest').length, auto: a.some(x => x.role === 'owner' && x.auto) };
+  }
+  // o dono avisa que o Avanço automático está agindo (moderadores travam Cantei / Não cantei). Fica na conexão dele: se ela cair, destrava.
+  auto(ws, m) {
+    this.all().forEach(w => { const x = this.att(w); if (x.role === 'owner' && (w === ws || x.auto)) w.serializeAttachment(Object.assign({}, x, { auto: w === ws && !!m.on })); });
+    this.bcast(this.presence());
   }
   async persistQ() { this.meta.last = Date.now(); await this.state.storage.put({ queue: this.q, meta: this.meta }); this.bcast({ t: 'queue', queue: this.q }); this.schedule(); }
   async schedule() { try { await this.state.storage.setAlarm(Date.now() + IDLE_DAYS * DAY); } catch (e) { } }
@@ -57,8 +62,8 @@ export class Sala {
     this.all().forEach(ws => { try { ws.close(1000, 'closed'); } catch (e) { } });
     await this.state.storage.deleteAll(); this.meta = null; this.q = []; this.reqs = []; this.lyr = new Map(); this.ix = []; this.sorted = {}; this._g = null; this.sg = {}; this.ixTs = 0; this.loaded = true;
   }
-  async webSocketClose(ws) { this.bcast(this.presence()); }
-  async webSocketError(ws) { this.bcast(this.presence()); }
+  async webSocketClose(ws) { this.bcast(this.presence(ws)); }
+  async webSocketError(ws) { this.bcast(this.presence(ws)); }
 
   async webSocketMessage(ws, raw) {
     if (typeof raw !== 'string' || raw.length > 900000) return;
@@ -94,6 +99,7 @@ export class Sala {
       }
       case 'close': if (!CAN.owner(a.role)) return this.deny(ws); return this.destroy('owner');
       case 'tv': return this.tv(ws, a, m);
+      case 'auto': if (!CAN.owner(a.role)) return this.deny(ws); return this.auto(ws, m);
       case 'tvres': if (a.role !== 'owner') return; return this.bcast({ t: 'tvres', id: cut(m.id, 24), ok: !!m.ok, err: cut(m.err, 120) }, x => x.dev === cut(m.to, 64));
     }
   }
